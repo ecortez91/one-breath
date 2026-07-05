@@ -4,7 +4,7 @@ A freediving game. Dive as deep as you can on a single breath — manage your ox
 grab air bubbles, dodge jellyfish, and make it back to the surface. Depth only counts
 if you bring it home.
 
-**Play it:** https://one-breath.vercel.app
+**Play it:** https://one-breath-tawny.vercel.app
 
 ## How to play
 
