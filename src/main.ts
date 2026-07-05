@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import './style.css';
 import { MenuScene } from './scenes/MenuScene';
-import { DiveScene } from './scenes/DiveScene';
+import { FreediveScene } from './scenes/FreediveScene';
+import { CaveScene } from './scenes/CaveScene';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -17,7 +18,7 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [MenuScene, DiveScene],
+  scene: [MenuScene, FreediveScene, CaveScene],
 });
 
 // Exposed for debugging and automated playtesting

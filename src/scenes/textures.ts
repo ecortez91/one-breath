@@ -37,6 +37,32 @@ export function makeTextures(scene: Phaser.Scene): void {
     g.generateTexture('jelly', 48, 52);
   }
 
+  // Scuba tank pickup (cave mode)
+  if (!scene.textures.exists('tank')) {
+    g.clear();
+    g.fillStyle(0xffd23e, 1);
+    g.fillRoundedRect(8, 10, 20, 34, 8);
+    g.fillStyle(0x9aa7b0, 1);
+    g.fillRect(14, 4, 8, 8);
+    g.fillStyle(0x333d44, 1);
+    g.fillRect(12, 2, 12, 4);
+    g.lineStyle(2, 0xb8901c, 0.8);
+    g.strokeRoundedRect(8, 10, 20, 34, 8);
+    g.fillStyle(0xffffff, 0.35);
+    g.fillRoundedRect(11, 13, 5, 26, 3);
+    g.generateTexture('tank', 36, 48);
+  }
+
+  // Rhythm cue ring (freedive mode)
+  if (!scene.textures.exists('cue')) {
+    g.clear();
+    g.lineStyle(5, 0x4be3a0, 1);
+    g.strokeCircle(28, 28, 22);
+    g.fillStyle(0x4be3a0, 0.25);
+    g.fillCircle(28, 28, 22);
+    g.generateTexture('cue', 56, 56);
+  }
+
   // Soft radial glow (diver's "light" in the dark depths)
   if (!scene.textures.exists('glow')) {
     const size = 256;

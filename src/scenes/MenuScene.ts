@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
-import { getBest } from './records';
+import { getRecord } from './records';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -43,65 +43,64 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    this.add.text(width / 2, 190, '🤿', { fontSize: '84px' }).setOrigin(0.5);
-
-    this.add.text(width / 2, 290, 'ONE BREATH', {
-      fontFamily: 'Georgia, serif',
-      fontSize: '52px',
-      color: '#e8f4ff',
-      letterSpacing: 6,
+    this.add.text(width / 2, 110, '🤿', { fontSize: '64px' }).setOrigin(0.5);
+    this.add.text(width / 2, 185, 'ONE BREATH', {
+      fontFamily: 'Georgia, serif', fontSize: '46px', color: '#e8f4ff', letterSpacing: 6,
+    }).setOrigin(0.5);
+    this.add.text(width / 2, 228, 'two ways down', {
+      fontFamily: 'Georgia, serif', fontSize: '18px', fontStyle: 'italic', color: '#8fc8e8',
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, 340, 'a freediving game', {
-      fontFamily: 'Georgia, serif',
-      fontSize: '20px',
-      fontStyle: 'italic',
-      color: '#8fc8e8',
+    this.modeCard(
+      310,
+      '🌬 FREEDIVE',
+      'Pure technique. Kick in rhythm,\ntighter timing the deeper you go.\nTurn back before it is too late.',
+      'freedive',
+      '#4be3a0',
+    );
+
+    this.modeCard(
+      520,
+      '🛢 CAVE DIVE',
+      'Explore the deep. Find gas tanks,\ndodge jellyfish, swim home.',
+      'cave',
+      '#ffd166',
+    );
+
+    this.add.text(width / 2, height - 60, 'Depth only counts if you surface.', {
+      fontFamily: 'Georgia, serif', fontSize: '15px', fontStyle: 'italic', color: '#5a8ba8',
     }).setOrigin(0.5);
-
-    const best = getBest();
-    if (best > 0) {
-      this.add.text(width / 2, 410, `Personal best: ${best} m`, {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: '#ffd166',
-      }).setOrigin(0.5);
-    }
-
-    this.add.text(width / 2, 500,
-      'Hold to swim toward your finger\n(or use the arrow keys)\n\nGrab air bubbles · Avoid jellyfish\nSurface before your O₂ runs out!', {
-      fontFamily: 'sans-serif',
-      fontSize: '17px',
-      color: '#bcd9ea',
-      align: 'center',
-      lineSpacing: 6,
-    }).setOrigin(0.5);
-
-    const start = this.add.text(width / 2, 640, 'TAP TO DIVE', {
-      fontFamily: 'monospace',
-      fontSize: '28px',
-      color: '#e8f4ff',
-      backgroundColor: '#0d5c8c',
-      padding: { x: 26, y: 14 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    this.tweens.add({
-      targets: start,
-      alpha: 0.6,
-      duration: 700,
-      yoyo: true,
-      repeat: -1,
-    });
-
     this.add.text(width / 2, height - 26, 'by Eduardo Cortez · open water is calling', {
-      fontFamily: 'sans-serif',
-      fontSize: '13px',
-      color: '#5a8ba8',
+      fontFamily: 'sans-serif', fontSize: '13px', color: '#5a8ba8',
     }).setOrigin(0.5);
 
-    const go = () => this.scene.start('dive');
-    start.on('pointerdown', go);
-    this.input.keyboard?.once('keydown-SPACE', go);
-    this.input.keyboard?.once('keydown-ENTER', go);
+    this.input.keyboard?.on('keydown-ONE', () => this.scene.start('freedive'));
+    this.input.keyboard?.on('keydown-TWO', () => this.scene.start('cave'));
+  }
+
+  private modeCard(y: number, title: string, desc: string, key: string, accent: string): void {
+    const { width } = this.scale;
+    const card = this.add.rectangle(width / 2, y, width - 60, 168, 0x02121f, 0.55)
+      .setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(accent).color, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    this.add.text(width / 2, y - 52, title, {
+      fontFamily: 'monospace', fontSize: '26px', color: accent,
+    }).setOrigin(0.5);
+
+    this.add.text(width / 2, y - 2, desc, {
+      fontFamily: 'sans-serif', fontSize: '15px', color: '#bcd9ea', align: 'center', lineSpacing: 4,
+    }).setOrigin(0.5);
+
+    const rec = getRecord(key as 'freedive' | 'cave');
+    this.add.text(width / 2, y + 52,
+      rec.depth > 0 ? `🏆 ${rec.depth} m · ${rec.name}` : 'no record yet — set one!', {
+      fontFamily: 'monospace', fontSize: '15px', color: rec.depth > 0 ? '#ffd166' : '#5a8ba8',
+    }).setOrigin(0.5);
+
+    card.on('pointerdown', () => this.scene.start(key));
+    this.tweens.add({
+      targets: card, alpha: 0.85, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
   }
 }
