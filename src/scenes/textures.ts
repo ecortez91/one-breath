@@ -64,47 +64,69 @@ export function makeTextures(scene: Phaser.Scene): void {
     g.generateTexture('cue', 56, 56);
   }
 
-  // Freediver silhouette, 3 frames of a dolphin kick (drawn facing right,
-  // streamlined arms overhead, monofin). Rotated 90° in-scene to face down/up.
+  // Freediver, 3 frames of a dolphin kick. Drawn FACING RIGHT — arms lead at
+  // the right edge, monofin trails at the left. In-scene: rotation +90° = head
+  // down (descending), -90° = head up (ascending).
   if (!scene.textures.exists('fd-glide')) {
-    const body = 0x16323f;
-    const fin = 0x2b7fa8;
+    const suit = 0x1d3a4a;
+    const suitLite = 0x2f5d73;
+    const finC = 0x3fa7d6;
+    const finLite = 0x7cc6e8;
     const drawBase = () => {
-      g.fillStyle(body, 1);
-      g.fillRect(2, 21, 24, 6);            // streamlined arms
-      g.fillCircle(32, 24, 9);             // head
-      g.fillStyle(0x8fd8ff, 0.9);
-      g.fillCircle(35, 21, 2.6);           // mask glint
-      g.fillStyle(body, 1);
-      g.fillRoundedRect(38, 17, 30, 14, 7); // torso
+      // torso with panel highlight
+      g.fillStyle(suit, 1);
+      g.fillRoundedRect(46, 20, 38, 16, 8);
+      g.fillStyle(suitLite, 1);
+      g.fillRoundedRect(52, 23, 24, 4, 2);
+      // head + hood
+      g.fillStyle(suit, 1);
+      g.fillCircle(92, 28, 10);
+      // mask glint
+      g.fillStyle(0x9fe8ff, 0.95);
+      g.fillRoundedRect(95, 23, 7, 6, 2);
+      // streamlined arms leading, hands tip
+      g.fillStyle(suit, 1);
+      g.fillRect(100, 25, 18, 6);
+      g.fillStyle(0xd9b38c, 1);
+      g.fillCircle(119, 28, 3.2);
+      // subtle rim light along the back for contrast in dark water
+      g.lineStyle(2, 0x9fd0e8, 0.3);
+      g.strokeRoundedRect(46, 20, 38, 16, 8);
     };
-    // glide: straight line, fin trailing flat
+    const blade = (hingeX: number, hingeY: number, tipX: number, tipY: number) => {
+      // swallow-blade monofin: two overlapping triangles from the hinge
+      g.fillStyle(finC, 1);
+      g.fillTriangle(hingeX, hingeY, tipX, tipY - 9, tipX + 7, tipY + 5);
+      g.fillStyle(finLite, 0.85);
+      g.fillTriangle(hingeX, hingeY, tipX + 4, tipY + 11, tipX + 10, tipY - 2);
+    };
+    // glide: body one straight line, fin level
     g.clear();
     drawBase();
-    g.fillRect(66, 20, 18, 8);
-    g.fillStyle(fin, 1);
-    g.fillTriangle(84, 24, 100, 15, 100, 33);
-    g.generateTexture('fd-glide', 102, 48);
-    // kick up-stroke: legs and fin swept up
+    g.fillStyle(suit, 1);
+    g.fillRoundedRect(22, 24, 28, 8, 4);
+    blade(24, 28, 2, 28);
+    g.generateTexture('fd-glide', 122, 56);
+    // up-stroke: legs sweep up, blade snaps above the body line
     g.clear();
     drawBase();
+    g.fillStyle(suit, 1);
     g.fillPoints([
-      new Phaser.Math.Vector2(66, 19), new Phaser.Math.Vector2(82, 8),
-      new Phaser.Math.Vector2(88, 13), new Phaser.Math.Vector2(70, 27),
+      new Phaser.Math.Vector2(50, 24), new Phaser.Math.Vector2(30, 12),
+      new Phaser.Math.Vector2(24, 18), new Phaser.Math.Vector2(46, 33),
     ], true);
-    g.fillStyle(fin, 1);
-    g.fillTriangle(85, 10, 101, 2, 98, 18);
-    g.generateTexture('fd-kick-up', 102, 48);
-    // kick down-stroke: legs and fin swept down
+    blade(27, 15, 4, 6);
+    g.generateTexture('fd-kick-up', 122, 56);
+    // down-stroke: legs sweep down, blade snaps below
     g.clear();
     drawBase();
+    g.fillStyle(suit, 1);
     g.fillPoints([
-      new Phaser.Math.Vector2(66, 29), new Phaser.Math.Vector2(82, 40),
-      new Phaser.Math.Vector2(88, 35), new Phaser.Math.Vector2(70, 21),
+      new Phaser.Math.Vector2(50, 32), new Phaser.Math.Vector2(30, 44),
+      new Phaser.Math.Vector2(24, 38), new Phaser.Math.Vector2(46, 23),
     ], true);
-    g.fillStyle(fin, 1);
-    g.fillTriangle(85, 38, 101, 46, 98, 30);
-    g.generateTexture('fd-kick-down', 102, 48);
+    blade(27, 41, 4, 50);
+    g.generateTexture('fd-kick-down', 122, 56);
   }
 
   // Soft radial glow (diver's "light" in the dark depths)
