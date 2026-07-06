@@ -217,6 +217,22 @@ export function makeTextures(scene: Phaser.Scene): void {
     g.generateTexture('fd-float', 122, 56);
   }
 
+  // Gold coin (the coin emoji doesn't render on Windows 10 — we draw our own)
+  if (!scene.textures.exists('coin')) {
+    g.clear();
+    g.fillStyle(0xd9a520, 1);
+    g.fillCircle(13, 13, 12);
+    g.fillStyle(0xf2c94c, 1);
+    g.fillCircle(13, 13, 9.5);
+    g.lineStyle(2, 0xb8860b, 0.9);
+    g.strokeCircle(13, 13, 12);
+    g.fillStyle(0xd9a520, 1);
+    g.fillRect(11, 7, 4, 12); // simple ingot mark
+    g.fillStyle(0xffffff, 0.55);
+    g.fillCircle(9, 8, 2.4);
+    g.generateTexture('coin', 26, 26);
+  }
+
   // Soft radial glow (diver's "light" in the dark depths)
   if (!scene.textures.exists('glow')) {
     const size = 256;

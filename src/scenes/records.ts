@@ -3,6 +3,18 @@ export type Record_ = { depth: number; name: string };
 
 const KEY = 'onebreath_records';
 const LEGACY_KEY = 'onebreath_pb';
+const TREASURE_KEY = 'onebreath_treasure';
+
+export function getTreasure(): number {
+  return parseInt(localStorage.getItem(TREASURE_KEY) || '0', 10) || 0;
+}
+
+/** Bank a haul (only call when the diver actually made it back up). */
+export function addTreasure(n: number): number {
+  const total = getTreasure() + n;
+  localStorage.setItem(TREASURE_KEY, String(total));
+  return total;
+}
 
 function load(): { freedive: Record_; cave: Record_ } {
   try {

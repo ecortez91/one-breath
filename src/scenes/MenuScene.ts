@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
-import { getRecord } from './records';
+import { getRecord, getTreasure } from './records';
 import { titleFor } from './world';
 import { diveAudio } from './audio';
 
@@ -110,6 +110,13 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(width / 2, y + 52, label, {
       fontFamily: 'monospace', fontSize: '13px', color: rec.depth > 0 ? '#ffd166' : '#5a8ba8',
     }).setOrigin(0.5);
+
+    if (key === 'cave' && getTreasure() > 0) {
+      this.add.image(width / 2 - 74, y + 71, 'coin').setScale(0.62);
+      this.add.text(width / 2 - 60, y + 71, `${getTreasure()} treasure banked`, {
+        fontFamily: 'monospace', fontSize: '12px', color: '#f2c94c',
+      }).setOrigin(0, 0.5);
+    }
 
     card.on('pointerdown', () => this.scene.start(key));
     this.tweens.add({

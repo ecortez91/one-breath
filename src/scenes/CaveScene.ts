@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
-import { getRecord, submitRecord } from './records';
+import { addTreasure, getRecord, submitRecord } from './records';
 import { diveAudio } from './audio';
 import {
   W, PX_PER_M, SURFACE_Y, ZONES,
@@ -24,6 +24,7 @@ const HAZARDS = [
 ];
 
 type Pickup = { obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text; alive: boolean; dmg: number };
+type Treasure = { obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text; alive: boolean; value: number };
 type CaveBand = { m: number; gapX: number; gapW: number };
 
 export class CaveScene extends Phaser.Scene {
@@ -41,6 +42,11 @@ export class CaveScene extends Phaser.Scene {
 
   private bubbles: Pickup[] = [];
   private jellies: Pickup[] = [];
+  private treasures: Treasure[] = [];
+  private treasureHaul = 0;
+  private haulText!: Phaser.GameObjects.Text;
+  private prevSpeed = 0;
+  private rockCooldownUntil = 0;
   private caveBands: CaveBand[] = [];
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private lighting!: Lighting;
@@ -61,6 +67,10 @@ export class CaveScene extends Phaser.Scene {
     this.state = 'diving';
     this.bubbles = [];
     this.jellies = [];
+    this.treasures = [];
+    this.treasureHaul = 0;
+    this.prevSpeed = 0;
+    this.rockCooldownUntil = 0;
     this.caveBands = [];
     this.zonesSeen = [];
 
@@ -68,9 +78,10 @@ export class CaveScene extends Phaser.Scene {
     this.buildDiver();
     this.buildCave();
     this.buildPickups();
+    this.buildTreasures();
     this.lighting = buildLighting(this);
     this.buildHud();
-    this.physics.add.collider(this.diver, this.walls);
+    this.physics.add.collider(this.diver, this.walls, () => this.onRockHit());
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.keys = this.input.keyboard!.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key>;
@@ -223,6 +234,56 @@ export class CaveScene extends Phaser.Scene {
     }
   }
 
+  private buildTreasures(): void {
+    // Coins in the shallows, gems in the twilight, crowns hiding in the dark.
+    // Some sit right at the corridor's edge — worth more nerve to grab.
+    let m = 10;
+    while (m < MAX_M - 3) {
+      const c = this.corridorAt(m);
+      const risky = Math.random() < 0.4;
+      const x = risky
+        ? (Math.random() < 0.5 ? c.min + 6 : c.max - 6)
+        : Phaser.Math.Between(c.min + 20, c.max - 20);
+      const y = SURFACE_Y + m * PX_PER_M + Phaser.Math.Between(-16, 16);
+      let obj: Treasure['obj'];
+      let value: number;
+      const roll = Math.random();
+      if (m > 250 && roll < 0.18) {
+        obj = this.add.text(x, y, '👑', { fontSize: '30px', padding: { y: 10 } }).setOrigin(0.5).setDepth(5);
+        value = 20;
+      } else if (m > 100 && roll < 0.45) {
+        obj = this.add.text(x, y, '💎', { fontSize: '24px', padding: { y: 8 } }).setOrigin(0.5).setDepth(5);
+        value = 5;
+      } else {
+        obj = this.add.image(x, y, 'coin').setDepth(5);
+        value = 1;
+      }
+      this.tweens.add({
+        targets: obj, y: y - 8, angle: value === 1 ? 12 : 0,
+        duration: Phaser.Math.Between(1500, 2300), yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
+      this.treasures.push({ obj, alive: true, value });
+      m += Phaser.Math.FloatBetween(10, 18);
+    }
+  }
+
+  private onRockHit(): void {
+    // A gentle brush is fine; slamming into rock at speed is not
+    const now = this.time.now;
+    if (now < this.rockCooldownUntil || this.prevSpeed < 150 || this.state !== 'diving') return;
+    this.rockCooldownUntil = now + 900;
+    const dmg = Math.min(14, 4 + (this.prevSpeed - 150) / 25);
+    this.o2 = Math.max(0, this.o2 - dmg);
+    diveAudio.thud();
+    this.cameras.main.shake(150, 0.01);
+    const t = this.add.text(this.diver.x, this.diver.y - 40, `rock! −${dmg.toFixed(0)} O₂`, {
+      fontFamily: 'monospace', fontSize: '19px', color: '#ff9e6b', stroke: '#02121f', strokeThickness: 4,
+      padding: { y: 6 },
+    }).setOrigin(0.5).setDepth(50);
+    this.tweens.add({ targets: t, y: t.y - 40, alpha: 0, duration: 700, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: this.diver, alpha: 0.4, duration: 100, yoyo: true, repeat: 2 });
+  }
+
   private buildHud(): void {
     const hud = 100;
     this.add.rectangle(24, 24, 200, 22, 0x02121f, 0.75).setOrigin(0, 0.5).setScrollFactor(0).setDepth(hud);
@@ -239,6 +300,12 @@ export class CaveScene extends Phaser.Scene {
     this.bestText = this.add.text(W - 24, 48, rec.depth > 0 ? `🏆 ${rec.depth} m · ${rec.name}` : '', {
       fontFamily: 'monospace', fontSize: '13px', color: '#ffd166',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(hud);
+
+    // The haul: what you're carrying — it only counts if you surface with it
+    this.add.image(W - 100, 78, 'coin').setScale(0.7).setScrollFactor(0).setDepth(hud);
+    this.haulText = this.add.text(W - 86, 70, '0', {
+      fontFamily: 'monospace', fontSize: '16px', color: '#f2c94c',
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(hud);
 
     this.banner = this.add.text(W / 2, 220, '', {
       fontFamily: 'Georgia, serif', fontSize: '30px', color: '#e8f4ff',
@@ -321,6 +388,21 @@ export class CaveScene extends Phaser.Scene {
         });
       }
     }
+
+    for (const tr of this.treasures) {
+      if (!tr.alive) continue;
+      if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, tr.obj.x, tr.obj.y) < 32) {
+        tr.alive = false;
+        this.treasureHaul += tr.value;
+        this.haulText.setText(String(this.treasureHaul));
+        if (tr.value >= 20) diveAudio.chime(); else diveAudio.pop();
+        const label = this.add.text(tr.obj.x, tr.obj.y - 18, `+${tr.value}`, {
+          fontFamily: 'monospace', fontSize: '18px', color: '#f2c94c', stroke: '#02121f', strokeThickness: 4,
+        }).setOrigin(0.5).setDepth(50);
+        this.tweens.add({ targets: label, y: label.y - 36, alpha: 0, duration: 650, onComplete: () => label.destroy() });
+        this.tweens.add({ targets: tr.obj, scale: 1.8, alpha: 0, duration: 200, onComplete: () => tr.obj.destroy() });
+      }
+    }
     // Zone announcements
     for (const z of ZONES) {
       if (z.m < MAX_M && depth > z.m && !this.zonesSeen.includes(z.m)) {
@@ -360,6 +442,7 @@ export class CaveScene extends Phaser.Scene {
     this.lighting.dangerVignette.setAlpha(o2Frac < 0.22 ? (0.22 - o2Frac) * 1.6 + Math.sin(time / 150) * 0.05 : 0);
 
     this.depthText.setText(`${depth.toFixed(0)} m`);
+    this.prevSpeed = this.body.velocity.length();
   }
 
   private surfaced(): void {
@@ -370,7 +453,16 @@ export class CaveScene extends Phaser.Scene {
     const rec = getRecord('cave');
     this.bestText.setText(`🏆 ${rec.depth} m · ${rec.name}`);
 
-    this.banner.setText(isRecord ? `NEW RECORD! 🏆\n−${depth} m — ${rec.name}` : `You surfaced!\n−${depth} m`);
+    let treasureLine = '';
+    if (this.treasureHaul > 0) {
+      const total = addTreasure(this.treasureHaul);
+      treasureLine = `\n+${this.treasureHaul} treasure banked · ${total} total`;
+      this.treasureHaul = 0;
+      this.haulText.setText('0');
+      diveAudio.chime();
+    }
+
+    this.banner.setText((isRecord ? `NEW RECORD! 🏆\n−${depth} m — ${rec.name}` : `You surfaced!\n−${depth} m`) + treasureLine);
     this.banner.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: this.banner, scale: 1, alpha: 1, duration: 350, ease: 'Back.easeOut' });
     // O₂ refills in update() while state === 'breathing'
@@ -389,7 +481,8 @@ export class CaveScene extends Phaser.Scene {
       this.lighting.glow.setAlpha(0);
       this.lighting.dangerVignette.setAlpha(0);
 
-      this.banner.setText(`OUT OF AIR 💫\n\nYou reached −${depth} m\nbut the ocean keeps\nwhat you don't bring back.`);
+      const lost = this.treasureHaul > 0 ? `\n…and your ${this.treasureHaul} treasure.` : '';
+      this.banner.setText(`OUT OF AIR 💫\n\nYou reached −${depth} m\nbut the ocean keeps\nwhat you don't bring back.${lost}`);
       this.banner.setFontSize(26).setAlpha(1).setScale(1);
 
       const retry = this.add.text(W / 2, 480, 'DIVE AGAIN', {
