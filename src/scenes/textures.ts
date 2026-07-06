@@ -64,6 +64,49 @@ export function makeTextures(scene: Phaser.Scene): void {
     g.generateTexture('cue', 56, 56);
   }
 
+  // Freediver silhouette, 3 frames of a dolphin kick (drawn facing right,
+  // streamlined arms overhead, monofin). Rotated 90° in-scene to face down/up.
+  if (!scene.textures.exists('fd-glide')) {
+    const body = 0x16323f;
+    const fin = 0x2b7fa8;
+    const drawBase = () => {
+      g.fillStyle(body, 1);
+      g.fillRect(2, 21, 24, 6);            // streamlined arms
+      g.fillCircle(32, 24, 9);             // head
+      g.fillStyle(0x8fd8ff, 0.9);
+      g.fillCircle(35, 21, 2.6);           // mask glint
+      g.fillStyle(body, 1);
+      g.fillRoundedRect(38, 17, 30, 14, 7); // torso
+    };
+    // glide: straight line, fin trailing flat
+    g.clear();
+    drawBase();
+    g.fillRect(66, 20, 18, 8);
+    g.fillStyle(fin, 1);
+    g.fillTriangle(84, 24, 100, 15, 100, 33);
+    g.generateTexture('fd-glide', 102, 48);
+    // kick up-stroke: legs and fin swept up
+    g.clear();
+    drawBase();
+    g.fillPoints([
+      new Phaser.Math.Vector2(66, 19), new Phaser.Math.Vector2(82, 8),
+      new Phaser.Math.Vector2(88, 13), new Phaser.Math.Vector2(70, 27),
+    ], true);
+    g.fillStyle(fin, 1);
+    g.fillTriangle(85, 10, 101, 2, 98, 18);
+    g.generateTexture('fd-kick-up', 102, 48);
+    // kick down-stroke: legs and fin swept down
+    g.clear();
+    drawBase();
+    g.fillPoints([
+      new Phaser.Math.Vector2(66, 29), new Phaser.Math.Vector2(82, 40),
+      new Phaser.Math.Vector2(88, 35), new Phaser.Math.Vector2(70, 21),
+    ], true);
+    g.fillStyle(fin, 1);
+    g.fillTriangle(85, 38, 101, 46, 98, 30);
+    g.generateTexture('fd-kick-down', 102, 48);
+  }
+
   // Soft radial glow (diver's "light" in the dark depths)
   if (!scene.textures.exists('glow')) {
     const size = 256;

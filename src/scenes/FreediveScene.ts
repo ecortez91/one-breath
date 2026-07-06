@@ -16,7 +16,7 @@ const GOOD_MS = 160;
 type Cue = { img: Phaser.GameObjects.Image; judged: boolean };
 
 export class FreediveScene extends Phaser.Scene {
-  private diver!: Phaser.GameObjects.Text;
+  private diver!: Phaser.GameObjects.Image;
   private lighting!: Lighting;
 
   private depth = 0;
@@ -26,10 +26,14 @@ export class FreediveScene extends Phaser.Scene {
   private o2 = O2_MAX;
   private state: 'diving' | 'blackout' | 'done' = 'diving';
   private combo = 0;
+  private flowActive = false;
+  private kickPhase = false; // alternates up/down stroke for the animation
+  private passedRecord = false;
 
   private cues: Cue[] = [];
   private cueSpeed = 240; // px/s, grows with depth
   private nextCueAt = 0;
+  private pairPhase = false; // cues come in pairs: kick-kick... glide
 
   private o2Fill!: Phaser.GameObjects.Rectangle;
   private depthText!: Phaser.GameObjects.Text;
@@ -52,11 +56,17 @@ export class FreediveScene extends Phaser.Scene {
     this.o2 = O2_MAX;
     this.state = 'diving';
     this.combo = 0;
+    this.flowActive = false;
+    this.kickPhase = false;
+    this.passedRecord = false;
     this.cues = [];
     this.nextCueAt = 0;
+    this.pairPhase = false;
 
     buildOcean(this);
-    this.diver = this.add.text(180, SURFACE_Y + 20, '🤿', { fontSize: '44px' }).setOrigin(0.5).setDepth(10);
+    // Animated freediver: drawn facing right, rotated to face down; flipX on turn
+    this.diver = this.add.image(180, SURFACE_Y + 20, 'fd-glide')
+      .setOrigin(0.5).setDepth(10).setRotation(Math.PI / 2).setScale(1.1);
     this.lighting = buildLighting(this);
     this.dangerV = this.lighting.dangerVignette;
 
@@ -116,25 +126,39 @@ export class FreediveScene extends Phaser.Scene {
       align: 'center', stroke: '#02121f', strokeThickness: 5, lineSpacing: 8,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hud + 2);
 
-    // TURN button
-    const circle = this.add.circle(0, 0, 46, 0x0d5c8c, 0.92).setStrokeStyle(3, 0x8fc8e8, 0.9);
+    // TURN button: big, amber, impossible to miss
+    const circle = this.add.circle(0, 0, 52, 0xd97706, 0.95).setStrokeStyle(4, 0xffd166, 1);
     const label = this.add.text(0, 0, '⤴\nTURN', {
-      fontFamily: 'monospace', fontSize: '17px', color: '#e8f4ff', align: 'center',
+      fontFamily: 'monospace', fontSize: '19px', color: '#ffffff', align: 'center', fontStyle: 'bold',
     }).setOrigin(0.5);
-    this.turnBtn = this.add.container(70, HIT_Y, [circle, label]).setScrollFactor(0).setDepth(95);
+    this.turnBtn = this.add.container(72, HIT_Y - 6, [circle, label]).setScrollFactor(0).setDepth(95);
     circle.setInteractive({ useHandCursor: true });
     circle.on('pointerdown', () => this.turnAround());
     this.input.keyboard?.on('keydown-T', () => this.turnAround());
+    this.tweens.add({ targets: this.turnBtn, scale: 1.07, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // How-to hint at dive start
+    this.flashBanner('Tap to the rhythm 🎵\nkick · kick · glide\n\n⤴ TURN to head home', 2600);
   }
 
   private turnAround(): void {
     if (this.turned || this.state !== 'diving') return;
     this.turned = true;
     this.vel = 0;
-    this.diver.setFlipY(true); // heading up now
+    this.diver.setRotation(-Math.PI / 2); // heading up now
     this.turnBtn.setVisible(false);
     this.phaseText.setText('▲ ascending').setColor('#4be3a0');
     this.flashBanner('Heading up!\nKeep the rhythm.');
+  }
+
+  private playKickAnim(): void {
+    // Dolphin kick: alternate up/down stroke, settle back into the glide
+    this.kickPhase = !this.kickPhase;
+    const first = this.kickPhase ? 'fd-kick-up' : 'fd-kick-down';
+    const second = this.kickPhase ? 'fd-kick-down' : 'fd-kick-up';
+    this.diver.setTexture(first);
+    this.time.delayedCall(90, () => { if (this.diver.active) this.diver.setTexture(second); });
+    this.time.delayedCall(220, () => { if (this.diver.active) this.diver.setTexture('fd-glide'); });
   }
 
   private flashBanner(text: string, hold = 900): void {
@@ -165,7 +189,7 @@ export class FreediveScene extends Phaser.Scene {
     if (!best || bestMs > GOOD_MS + 120) {
       // flailing in the water
       this.o2 = Math.max(0, this.o2 - O2_WASTED_TAP);
-      this.combo = 0;
+      this.breakFlow();
       this.popup('too soon!', '#ff9e9e');
       return;
     }
@@ -174,19 +198,37 @@ export class FreediveScene extends Phaser.Scene {
     const good = bestMs <= GOOD_MS;
     if (!good) {
       this.o2 = Math.max(0, this.o2 - O2_WASTED_TAP);
-      this.combo = 0;
+      this.breakFlow();
       this.popup('weak kick', '#ffd166');
       this.killCue(best, 0xffd166);
       this.vel += 0.35;
+      this.playKickAnim();
       return;
     }
     this.combo++;
     const comboBonus = Math.min(0.5, Math.floor(this.combo / 5) * 0.1);
-    this.vel += (perfect ? 2.6 : 1.7) * (1 + comboBonus);
+    const flowBonus = this.flowActive ? 1.15 : 1;
+    this.vel += (perfect ? 2.6 : 1.7) * (1 + comboBonus) * flowBonus;
     this.popup(perfect ? 'PERFECT!' : 'good', perfect ? '#4be3a0' : '#bcd9ea');
     this.killCue(best, perfect ? 0x4be3a0 : 0x8fc8e8);
-    // Kick animation
-    this.tweens.add({ targets: this.diver, angle: this.turned ? -12 : 12, duration: 90, yoyo: true });
+    this.playKickAnim();
+
+    // FLOW STATE: long combo = the dive clicks into place
+    if (!this.flowActive && this.combo >= 12) {
+      this.flowActive = true;
+      this.diver.setTint(0x9fe8ff);
+      this.popup('FLOW STATE 🌊', '#8fd8ff');
+      this.flashBanner('FLOW STATE\nkicks hit harder', 1100);
+    }
+  }
+
+  private breakFlow(): void {
+    this.combo = 0;
+    if (this.flowActive) {
+      this.flowActive = false;
+      this.diver.clearTint();
+      this.popup('flow lost', '#8fa8b8');
+    }
   }
 
   private killCue(c: Cue, tint: number): void {
@@ -198,13 +240,20 @@ export class FreediveScene extends Phaser.Scene {
     if (this.state !== 'diving') return;
     const dt = Math.min(deltaMs, 50) / 1000;
 
-    // ── Spawn cues; harder with depth ──
+    // ── Spawn cues in pairs (kick-kick ... glide), harder with depth ──
     if (time >= this.nextCueAt) {
       const img = this.add.image(LANE_X, 90, 'cue').setScrollFactor(0).setDepth(91);
       this.cues.push({ img, judged: false });
-      const base = Phaser.Math.Clamp(950 - this.maxDepth * 6, 430, 950);
-      const jitter = this.maxDepth > 45 ? Phaser.Math.FloatBetween(0.85, 1.2) : 1;
-      this.nextCueAt = time + base * jitter;
+      if (!this.pairPhase) {
+        // second kick of the pair lands close behind
+        this.nextCueAt = time + Phaser.Math.Clamp(400 - this.maxDepth, 260, 400);
+      } else {
+        // glide phase before the next pair
+        const base = Phaser.Math.Clamp(1250 - this.maxDepth * 7, 560, 1250);
+        const jitter = this.maxDepth > 45 ? Phaser.Math.FloatBetween(0.85, 1.2) : 1;
+        this.nextCueAt = time + base * jitter;
+      }
+      this.pairPhase = !this.pairPhase;
     }
     this.cueSpeed = 240 + this.maxDepth * 2;
 
@@ -215,12 +264,20 @@ export class FreediveScene extends Phaser.Scene {
       if (!c.judged && c.img.y > HIT_Y + (GOOD_MS / 1000) * this.cueSpeed + 8) {
         c.judged = true;
         this.o2 = Math.max(0, this.o2 - O2_MISS);
-        this.combo = 0;
+        this.breakFlow();
         this.popup('missed', '#ff5d5d');
         this.killCue(c, 0xff5d5d);
       }
     }
     this.cues = this.cues.filter(c => c.img.active);
+
+    // ── Record chase ──
+    const rec = getRecord('freedive');
+    if (!this.turned && !this.passedRecord && rec.depth > 0 && this.depth > rec.depth) {
+      this.passedRecord = true;
+      this.popup('🏆 NEW TERRITORY', '#ffd166');
+      this.cameras.main.flash(300, 255, 209, 102, false);
+    }
 
     // ── Physics: kicks build velocity, water drag bleeds it ──
     this.vel *= Math.exp(-1.3 * dt);
