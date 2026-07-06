@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
+import { diveAudio } from './audio';
 import {
   W, PX_PER_M, SURFACE_Y, ZONES, MILESTONES, titleFor,
   buildOcean, buildLighting, updateLighting, type Lighting,
@@ -39,8 +40,14 @@ export class FreediveScene extends Phaser.Scene {
   private vel = 0;
   private phase: Phase = 'kick';
   private o2 = O2_MAX;
-  private state: 'ready' | 'diving' | 'blackout' | 'done' = 'ready';
+  private state: 'ready' | 'diving' | 'protocol' | 'blackout' | 'done' = 'ready';
   private bobTween?: Phaser.Tweens.Tween;
+  private fins: 'mono' | 'bi' = (localStorage.getItem('onebreath_fins') as 'mono' | 'bi') || 'mono';
+  private finButtons: Phaser.GameObjects.Text[] = [];
+  private stillRing?: Phaser.GameObjects.Arc;
+  private protocolTaps = 0;
+  private protocolDeadline = 0;
+  private protocolText?: Phaser.GameObjects.Text;
   private combo = 0;
   private flowActive = false;
   private passedRecord = false;
@@ -88,13 +95,19 @@ export class FreediveScene extends Phaser.Scene {
     this.nextUrgeAt = 0;
     this.zonesSeen = [];
     this.milestonesSeen = [];
+    this.finButtons = [];
+    this.stillRing = undefined;
+    this.protocolText = undefined;
+    this.protocolTaps = 0;
 
     buildOcean(this, MAX_M);
 
-    if (!this.anims.exists('fd-drift')) {
-      const frames = Array.from({ length: 8 }, (_, i) => ({ key: 'fd-' + i }));
-      this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
-      this.anims.create({ key: 'fd-swim', frames, frameRate: 26, repeat: 0 });
+    for (const pre of ['fd', 'bf']) {
+      if (!this.anims.exists(pre + '-drift')) {
+        const frames = Array.from({ length: 8 }, (_, i) => ({ key: pre + '-' + i }));
+        this.anims.create({ key: pre + '-drift', frames, frameRate: 5, repeat: -1 });
+        this.anims.create({ key: pre + '-swim', frames, frameRate: pre === 'bf' ? 30 : 26, repeat: 0 });
+      }
     }
 
     // Breathe-up: chilling at the surface until the first tap.
@@ -103,7 +116,7 @@ export class FreediveScene extends Phaser.Scene {
     this.diver = this.add.sprite(
       180,
       floating ? SURFACE_Y - 4 : SURFACE_Y + 16,
-      floating ? 'fd-float' : 'fd-straight',
+      (this.fins === 'mono' ? 'fd' : 'bf') + (floating ? '-float' : '-straight'),
     ).setOrigin(0.5).setDepth(10).setScale(1.1);
     if (!floating) this.diver.setRotation(-Math.PI / 2); // upright, head above water
     this.bobTween = this.tweens.add({
@@ -115,9 +128,11 @@ export class FreediveScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
     // A kick waves the body once, then back to a still streamline
-    this.diver.on(Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + 'fd-swim', () => {
-      if (this.diver.active) { this.diver.stop(); this.diver.setTexture('fd-straight'); }
-    });
+    for (const pre of ['fd', 'bf']) {
+      this.diver.on(Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + pre + '-swim', () => {
+        if (this.diver.active) { this.diver.stop(); this.diver.setTexture(this.finPrefix() + '-straight'); }
+      });
+    }
 
     this.lighting = buildLighting(this);
     this.dangerV = this.lighting.dangerVignette;
@@ -130,12 +145,16 @@ export class FreediveScene extends Phaser.Scene {
     this.cameras.main.fadeIn(400);
 
     this.input.on('pointerdown', (_p: Phaser.Input.Pointer, over: unknown[]) => {
+      diveAudio.init();
       if (over.length > 0) return;
       if (this.state === 'ready') return this.startDive();
+      if (this.state === 'protocol') return this.protocolTap();
       this.tryKick();
     });
     this.input.keyboard?.on('keydown-SPACE', () => {
+      diveAudio.init();
       if (this.state === 'ready') return this.startDive();
+      if (this.state === 'protocol') return this.protocolTap();
       this.tryKick();
     });
   }
@@ -200,12 +219,56 @@ export class FreediveScene extends Phaser.Scene {
     this.turnBtn.setVisible(false); // appears once the dive starts
 
     this.banner.setText('breathe up...\n\nTAP when you are ready\nto take the one breath').setAlpha(1);
+
+    // Equipment choice while breathing up
+    const mkFinBtn = (x: number, kind: 'mono' | 'bi', label: string) => {
+      const btn = this.add.text(x, 700, label, {
+        fontFamily: 'monospace', fontSize: '16px', color: '#e8f4ff',
+        backgroundColor: '#0d5c8c', padding: { x: 14, y: 10 },
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(96).setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', () => this.pickFins(kind));
+      this.finButtons.push(btn);
+      return btn;
+    };
+    mkFinBtn(W / 2 - 90, 'mono', 'MONOFIN');
+    mkFinBtn(W / 2 + 90, 'bi', 'BIFINS');
+    this.refreshFinButtons();
+
+    // Mute toggle
+    const mute = this.add.text(W - 20, 780, diveAudio.muted ? '🔇' : '🔊', {
+      fontSize: '22px', padding: { y: 6 },
+    }).setOrigin(1, 1).setScrollFactor(0).setDepth(96).setAlpha(0.8).setInteractive({ useHandCursor: true });
+    mute.on('pointerdown', () => {
+      diveAudio.init();
+      mute.setText(diveAudio.toggleMute() ? '🔇' : '🔊');
+    });
+  }
+
+  private finPrefix(): string {
+    return this.fins === 'mono' ? 'fd' : 'bf';
+  }
+
+  private pickFins(kind: 'mono' | 'bi'): void {
+    if (this.state !== 'ready') return;
+    this.fins = kind;
+    localStorage.setItem('onebreath_fins', kind);
+    const floating = this.diver.texture.key.endsWith('-float');
+    this.diver.setTexture(this.finPrefix() + (floating ? '-float' : '-straight'));
+    this.refreshFinButtons();
+  }
+
+  private refreshFinButtons(): void {
+    this.finButtons.forEach(b => {
+      const active = (b.text === 'MONOFIN') === (this.fins === 'mono');
+      b.setBackgroundColor(active ? '#d97706' : '#0d5c8c').setColor(active ? '#ffffff' : '#9fc4dc');
+    });
   }
 
   private startDive(): void {
     this.state = 'diving';
     this.bobTween?.remove();
     this.turnBtn.setVisible(true);
+    this.finButtons.forEach(b => b.setVisible(false));
     this.tweens.add({ targets: this.banner, alpha: 0, duration: 300 });
     // Duck dive: tip from the surface pose into a head-down streamline
     this.tweens.add({
@@ -214,10 +277,15 @@ export class FreediveScene extends Phaser.Scene {
       y: SURFACE_Y + 20,
       duration: 450,
       ease: 'Sine.easeInOut',
-      onComplete: () => this.diver.setTexture('fd-straight'),
+      onComplete: () => this.diver.setTexture(this.finPrefix() + '-straight'),
     });
     this.nextCueAt = this.time.now + 1000;
-    this.flashBanner('kick · kick · glide 🎵\nfreefall waits at −32 m', 1800);
+    this.flashBanner(
+      this.fins === 'bi'
+        ? 'kick · kick · glide 🎵\nfreefall waits at −32 m'
+        : 'one strong stroke · glide 🎵\nfreefall waits at −32 m',
+      1800,
+    );
   }
 
   private estimatedCost(): number {
@@ -314,6 +382,7 @@ export class FreediveScene extends Phaser.Scene {
       this.popup('fought the urge! −O₂', '#ff5d5d');
       this.killCue(best, 0xff5d5d);
       this.cameras.main.shake(140, 0.008);
+      diveAudio.thud();
       return;
     }
 
@@ -346,16 +415,24 @@ export class FreediveScene extends Phaser.Scene {
     this.combo++;
     const comboBonus = Math.min(0.5, Math.floor(this.combo / 5) * 0.1);
     const flowBonus = this.flowActive ? 1.15 : 1;
-    this.vel += (perfect ? 2.6 : 1.7) * (1 + comboBonus) * flowBonus;
+    // Monofin: fewer, stronger strokes. Bifins: lighter kicks in pairs.
+    const impulse = this.fins === 'mono' ? (perfect ? 3.4 : 2.2) : (perfect ? 2.0 : 1.3);
+    this.vel += impulse * (1 + comboBonus) * flowBonus;
     this.popup(perfect ? 'PERFECT!' : 'good', perfect ? '#4be3a0' : '#bcd9ea');
     this.killCue(best, perfect ? 0x4be3a0 : 0x8fc8e8);
     this.playKickAnim();
+    diveAudio.kick(perfect);
 
+    // Stillness: not excitement — the opposite. Everything goes quiet.
     if (!this.flowActive && this.combo >= 12) {
       this.flowActive = true;
-      this.diver.setTint(0x9fe8ff);
-      this.popup('FLOW STATE 🌊', '#8fd8ff');
-      this.flashBanner('FLOW STATE\nstronger kicks, calmer O₂', 1100);
+      this.popup('everything goes quiet…', '#b8d4e2');
+      this.stillRing = this.add.circle(this.diver.x, this.diver.y, 52, 0xffffff, 0)
+        .setStrokeStyle(2, 0xcfe8f2, 0.22).setDepth(9);
+      this.tweens.add({
+        targets: this.stillRing, scale: 1.25, alpha: 0.45,
+        duration: 3600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      });
     }
   }
 
@@ -363,13 +440,14 @@ export class FreediveScene extends Phaser.Scene {
     this.combo = 0;
     if (this.flowActive) {
       this.flowActive = false;
-      this.diver.clearTint();
-      this.popup('flow lost', '#8fa8b8');
+      this.stillRing?.destroy();
+      this.stillRing = undefined;
+      this.popup('the mind wanders', '#8fa8b8');
     }
   }
 
   private playKickAnim(): void {
-    this.diver.play('fd-swim');
+    this.diver.play(this.finPrefix() + '-swim');
   }
 
   private killCue(c: Cue, tint: number): void {
@@ -382,15 +460,17 @@ export class FreediveScene extends Phaser.Scene {
     const dt = Math.min(deltaMs, 50) / 1000;
 
     // ── Cue spawning by phase ──
+    // Bifins: kick-kick-glide pairs. Monofin: single, slower, stronger strokes.
     if (this.phase !== 'freefall') {
       if (time >= this.nextCueAt) {
         this.spawnCue('kick');
-        if (!this.pairPhase) {
+        if (this.fins === 'bi' && !this.pairPhase) {
           this.nextCueAt = time + Phaser.Math.Clamp(400 - this.maxDepth * 0.6, 260, 400);
         } else {
-          const base = this.phase === 'ascent'
+          let base = this.phase === 'ascent'
             ? Phaser.Math.Clamp(950 - this.depth * 3, 460, 950)
             : Phaser.Math.Clamp(1250 - this.maxDepth * 7, 560, 1250);
+          if (this.fins === 'mono') base *= 0.82; // singles come a bit steadier
           const jitter = this.maxDepth > 45 ? Phaser.Math.FloatBetween(0.85, 1.2) : 1;
           this.nextCueAt = time + base * jitter;
         }
@@ -430,6 +510,7 @@ export class FreediveScene extends Phaser.Scene {
           this.breakFlow();
           this.popup('missed', '#ff5d5d');
           this.killCue(c, 0xff5d5d);
+          diveAudio.thud();
         }
       }
     }
@@ -481,6 +562,7 @@ export class FreediveScene extends Phaser.Scene {
       if (this.phase !== 'ascent' && this.depth > ms.m && !this.milestonesSeen.includes(ms.m)) {
         this.milestonesSeen.push(ms.m);
         this.popup(`−${ms.m} m · ${ms.title}`, '#ffd166');
+        diveAudio.deepTone();
       }
     }
     const nx = this.nextMilestone();
@@ -493,6 +575,7 @@ export class FreediveScene extends Phaser.Scene {
           this.zonesSeen.push(z.m);
           this.flashBanner(`— ${z.m} m —\n${z.label}`, 1600);
           this.cameras.main.flash(400, 20, 40, 80, false);
+          diveAudio.deepTone();
         }
       }
     }
@@ -505,10 +588,19 @@ export class FreediveScene extends Phaser.Scene {
       this.cameras.main.flash(300, 255, 209, 102, false);
     }
 
-    // ── Surfaced? ──
-    if (this.phase === 'ascent' && this.depth <= 0.05 && this.maxDepth >= 3) return this.surfaced();
+    // ── Surfaced? Then the dive isn't over: surface protocol ──
+    if (this.phase === 'ascent' && this.depth <= 0.05 && this.maxDepth >= 3) return this.startProtocol();
+
+    // ── Soundscape: muffling with depth, heartbeat on the dive reflex ──
+    diveAudio.setDepth(this.depth);
+    let bpm = 62;
+    if (this.depth > 2) bpm = 55 - Math.min(this.depth, 60) * 0.25; // bradycardia
+    if (this.flowActive) bpm -= 6; // stillness
+    if (this.o2 < 30) bpm = 68 + (30 - this.o2) * 1.4; // the body protests
+    diveAudio.setHeart(bpm, this.o2 < 30 ? 1 : 0.45);
 
     // ── HUD / lighting ──
+    if (this.stillRing) this.stillRing.setPosition(this.diver.x, this.diver.y);
     updateLighting(this.lighting, this.depth, this.diver.x, this.diver.y);
     const frac = this.o2 / O2_MAX;
     this.o2Fill.width = 196 * frac;
@@ -520,17 +612,52 @@ export class FreediveScene extends Phaser.Scene {
     this.comboText.setText(this.combo >= 3 ? `combo ×${this.combo}` : '');
   }
 
-  private surfaced(): void {
+  private startProtocol(): void {
+    // Real competition rules: surface, recovery breaths, OK sign — or red card.
+    this.state = 'protocol';
+    this.dangerV.setAlpha(0);
+    this.protocolTaps = 3;
+    this.protocolDeadline = this.time.now + 6000;
+    this.turnBtn.setVisible(false);
+    this.banner.setText('SURFACE PROTOCOL').setAlpha(1).setScale(1);
+    this.protocolText = this.add.text(W / 2, 380, 'recovery breaths\nTAP × 3', {
+      fontFamily: 'monospace', fontSize: '26px', color: '#e8f4ff', align: 'center',
+      stroke: '#02121f', strokeThickness: 5, lineSpacing: 8, padding: { y: 8 },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(103);
+    this.tweens.add({ targets: this.protocolText, scale: 1.08, duration: 450, yoyo: true, repeat: -1 });
+    this.time.delayedCall(6000, () => {
+      if (this.state === 'protocol') this.finishDive(false);
+    });
+  }
+
+  private protocolTap(): void {
+    if (this.time.now > this.protocolDeadline) return;
+    this.protocolTaps--;
+    diveAudio.kick(true);
+    this.protocolText?.setText(this.protocolTaps > 0 ? `recovery breaths\nTAP × ${this.protocolTaps}` : '');
+    if (this.protocolTaps <= 0) this.finishDive(true);
+  }
+
+  private finishDive(whiteCard: boolean): void {
     this.state = 'done';
-    this.dangerV.setAlpha(0); // clear the low-O2 tint from the end screen
+    this.protocolText?.destroy();
     const depth = Math.floor(this.maxDepth);
+    if (!whiteCard) {
+      diveAudio.thud();
+      this.showEnd(
+        `RED CARD ✋\n\nYou touched −${depth} m but\nfailed the surface protocol.\nThe dive is not valid.`,
+        'DIVE AGAIN',
+      );
+      return;
+    }
+    diveAudio.chime();
     const isRecord = submitRecord('freedive', depth);
     const rec = getRecord('freedive');
     const title = titleFor(depth);
     this.showEnd(
       isRecord
-        ? `NEW RECORD! 🏆\n−${depth} m — ${rec.name}\n"${title}"`
-        : `Clean dive!\n−${depth} m · "${title}"\n\n🏆 ${rec.depth} m · ${rec.name}`,
+        ? `WHITE CARD ✓\nNEW RECORD! 🏆\n−${depth} m — ${rec.name}\n"${title}"`
+        : `WHITE CARD ✓\n−${depth} m · "${title}"\n\n🏆 ${rec.depth} m · ${rec.name}`,
       'DIVE AGAIN',
     );
   }

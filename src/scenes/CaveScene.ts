@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
+import { diveAudio } from './audio';
 import {
   W, PX_PER_M, SURFACE_Y, ZONES,
   buildOcean, buildLighting, updateLighting, worldHeight, type Lighting,
@@ -77,6 +78,15 @@ export class CaveScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, W, WORLD_H);
     this.cameras.main.startFollow(this.diver, false, 0.12, 0.12);
     this.cameras.main.fadeIn(400);
+
+    this.input.on('pointerdown', () => diveAudio.init());
+    const mute = this.add.text(W - 20, 780, diveAudio.muted ? '🔇' : '🔊', {
+      fontSize: '22px', padding: { y: 6 },
+    }).setOrigin(1, 1).setScrollFactor(0).setDepth(105).setAlpha(0.8).setInteractive({ useHandCursor: true });
+    mute.on('pointerdown', () => {
+      diveAudio.init();
+      mute.setText(diveAudio.toggleMute() ? '🔇' : '🔊');
+    });
   }
 
   private buildDiver(): void {
@@ -304,6 +314,7 @@ export class CaveScene extends Phaser.Scene {
       if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, b.obj.x, b.obj.y) < 34) {
         b.alive = false;
         this.o2 = Math.min(O2_MAX, this.o2 + O2_BUBBLE);
+        diveAudio.pop();
         this.tweens.add({
           targets: b.obj, scale: 2, alpha: 0, duration: 220,
           onComplete: () => b.obj.destroy(),
@@ -325,6 +336,7 @@ export class CaveScene extends Phaser.Scene {
         if (!j.alive) continue;
         if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, j.obj.x, j.obj.y) < 38) {
           this.o2 = Math.max(0, this.o2 - j.dmg);
+          diveAudio.thud();
           this.stunUntil = time + 650;
           this.invulnUntil = time + 1300;
           this.body.setVelocity(this.body.velocity.x * -0.6, this.body.velocity.y * -0.6);
@@ -340,6 +352,8 @@ export class CaveScene extends Phaser.Scene {
     }
 
     updateLighting(this.lighting, depth, this.diver.x, this.diver.y);
+    diveAudio.setDepth(depth);
+    diveAudio.setHeart(this.o2 < 25 ? 80 : 62, this.o2 < 25 ? 0.9 : 0.35);
     const o2Frac = this.o2 / O2_MAX;
     this.o2Fill.width = 196 * o2Frac;
     this.o2Fill.fillColor = o2Frac > 0.5 ? 0x4be3a0 : o2Frac > 0.25 ? 0xffd166 : 0xff5d5d;

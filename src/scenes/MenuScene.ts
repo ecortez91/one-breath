@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord } from './records';
 import { titleFor } from './world';
+import { diveAudio } from './audio';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -77,6 +78,15 @@ export class MenuScene extends Phaser.Scene {
 
     this.input.keyboard?.on('keydown-ONE', () => this.scene.start('freedive'));
     this.input.keyboard?.on('keydown-TWO', () => this.scene.start('cave'));
+    this.input.on('pointerdown', () => diveAudio.init());
+
+    const mute = this.add.text(width - 16, height - 12, diveAudio.muted ? '🔇' : '🔊', {
+      fontSize: '22px', padding: { y: 6 },
+    }).setOrigin(1, 1).setDepth(50).setAlpha(0.8).setInteractive({ useHandCursor: true });
+    mute.on('pointerdown', () => {
+      diveAudio.init();
+      mute.setText(diveAudio.toggleMute() ? '🔇' : '🔊');
+    });
   }
 
   private modeCard(y: number, title: string, desc: string, key: string, accent: string): void {

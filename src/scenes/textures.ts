@@ -112,6 +112,73 @@ export function makeTextures(scene: Phaser.Scene): void {
       g.generateTexture('fd-' + f, 122, 56);
     }
 
+    // Bifins: 8 frames of alternating flutter kick — two slim legs scissor
+    // in opposite phase, each with its own small blade.
+    for (let f = 0; f < 8; f++) {
+      const phi = (f / 8) * Math.PI * 2;
+      g.clear();
+      // torso + head + arms (same locked upper body)
+      g.fillStyle(suit, 1);
+      for (let x = 82; x >= 52; x -= 3) g.fillCircle(x, 28, 8);
+      g.fillStyle(suitLite, 0.9);
+      g.fillCircle(64, 28, 4.5);
+      g.fillCircle(58, 28, 4.5);
+      g.fillStyle(suit, 1);
+      g.fillCircle(92, 28, 10);
+      g.fillStyle(0x9fe8ff, 0.95);
+      g.fillRoundedRect(95, 23, 7, 6, 2);
+      g.fillStyle(suit, 1);
+      g.fillRect(100, 25, 18, 6);
+      g.fillStyle(0xd9b38c, 1);
+      g.fillCircle(119, 28, 3.2);
+      // two legs in opposite phase, flutter grows toward the feet
+      for (const [baseY, legPhi] of [[25, phi], [31, phi + Math.PI]] as Array<[number, number]>) {
+        const legOff = (x: number) => Math.sin(legPhi) * ((52 - x) / 52) * 7;
+        g.fillStyle(suit, 1);
+        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY + legOff(x), 4);
+        const footY = baseY + legOff(26);
+        const tipY = footY + Math.sin(legPhi) * 4;
+        g.fillStyle(finC, 1);
+        g.fillTriangle(27, footY, 6, tipY - 4, 9, tipY + 5);
+      }
+      g.generateTexture('bf-' + f, 122, 56);
+    }
+    // Bifins straight + float poses
+    const drawBifinStraight = () => {
+      g.fillStyle(suit, 1);
+      for (let x = 82; x >= 52; x -= 3) g.fillCircle(x, 28, 8);
+      g.fillStyle(suitLite, 0.9);
+      g.fillCircle(64, 28, 4.5);
+      g.fillCircle(58, 28, 4.5);
+      g.fillStyle(suit, 1);
+      g.fillCircle(92, 28, 10);
+      g.fillStyle(0x9fe8ff, 0.95);
+      g.fillRoundedRect(95, 23, 7, 6, 2);
+      g.fillStyle(suit, 1);
+      g.fillRect(100, 25, 18, 6);
+      g.fillStyle(0xd9b38c, 1);
+      g.fillCircle(119, 28, 3.2);
+      for (const baseY of [25, 31]) {
+        g.fillStyle(suit, 1);
+        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY, 4);
+        g.fillStyle(finC, 1);
+        g.fillTriangle(27, baseY, 6, baseY - 4, 9, baseY + 5);
+      }
+    };
+    g.clear();
+    drawBifinStraight();
+    g.generateTexture('bf-straight', 122, 56);
+    g.clear();
+    drawBifinStraight();
+    g.lineStyle(5, 0xff8c42, 1);
+    g.beginPath();
+    g.moveTo(87, 22);
+    g.lineTo(87, 4);
+    g.strokePath();
+    g.fillStyle(0xff8c42, 1);
+    g.fillCircle(87, 4, 3.5);
+    g.generateTexture('bf-float', 122, 56);
+
     // Straight glide pose (no wave — freedivers hold a still streamline)
     const drawStraight = () => {
       g.fillStyle(suit, 1);
