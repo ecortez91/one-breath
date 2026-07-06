@@ -2,46 +2,61 @@ import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
 import {
-  W, PX_PER_M, SURFACE_Y, ZONES,
+  W, PX_PER_M, SURFACE_Y, ZONES, MILESTONES, titleFor,
   buildOcean, buildLighting, updateLighting, type Lighting,
 } from './world';
 
 const MAX_M = 1000; // to the midnight zone — nobody has survived it yet
+const FREEFALL_AT = 32; // past neutral buoyancy you stop kicking and sink
 
 const O2_MAX = 100;
-const O2_DRAIN = 1.7; // per second
-const O2_MISS = 2.5; // cue sails past untapped
-const O2_WASTED_TAP = 1.5; // tap with no cue in the window
+// Real dives are three acts with very different price tags:
+const DRAIN_KICK = 1.6; // descent kicking
+const DRAIN_FREEFALL = 0.6; // streamlined sinking is nearly free
+const DRAIN_ASCENT = 2.2; // the swim home is where the O2 goes
+const O2_MISS = 2.5;
+const O2_WASTED_TAP = 1.5;
+const O2_URGE_TAPPED = 5; // fighting a contraction costs you
+const O2_POSTURE_MISS = 1.5;
 
-const HIT_Y = 640; // screen y of the hit zone
-const LANE_X = 424; // screen x of the rhythm lane
+const HIT_Y = 640;
+const LANE_X = 424;
 const PERFECT_MS = 75;
 const GOOD_MS = 160;
 
-type Cue = { img: Phaser.GameObjects.Image; judged: boolean };
+type CueType = 'kick' | 'posture' | 'urge';
+type Cue = { img: Phaser.GameObjects.Image; judged: boolean; type: CueType };
+type Phase = 'kick' | 'freefall' | 'ascent';
 
 export class FreediveScene extends Phaser.Scene {
   private diver!: Phaser.GameObjects.Sprite;
   private lighting!: Lighting;
   private zonesSeen: number[] = [];
+  private milestonesSeen: number[] = [];
 
   private depth = 0;
   private maxDepth = 0;
-  private vel = 0; // m/s along current direction
-  private turned = false;
+  private vel = 0;
+  private phase: Phase = 'kick';
   private o2 = O2_MAX;
   private state: 'diving' | 'blackout' | 'done' = 'diving';
   private combo = 0;
   private flowActive = false;
   private passedRecord = false;
+  private postureMult = 1;
+  private postureUntil = 0;
+  private turnWarned = false;
 
   private cues: Cue[] = [];
-  private cueSpeed = 240; // px/s, grows with depth
+  private cueSpeed = 240;
   private nextCueAt = 0;
-  private pairPhase = false; // cues come in pairs: kick-kick... glide
+  private pairPhase = false;
+  private nextUrgeAt = 0;
 
   private o2Fill!: Phaser.GameObjects.Rectangle;
+  private costMarker!: Phaser.GameObjects.Rectangle;
   private depthText!: Phaser.GameObjects.Text;
+  private nextMsText!: Phaser.GameObjects.Text;
   private comboText!: Phaser.GameObjects.Text;
   private phaseText!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
@@ -57,20 +72,24 @@ export class FreediveScene extends Phaser.Scene {
     this.depth = 0;
     this.maxDepth = 0;
     this.vel = 0;
-    this.turned = false;
+    this.phase = 'kick';
     this.o2 = O2_MAX;
     this.state = 'diving';
     this.combo = 0;
     this.flowActive = false;
     this.passedRecord = false;
+    this.postureMult = 1;
+    this.postureUntil = 0;
+    this.turnWarned = false;
     this.cues = [];
     this.nextCueAt = 0;
     this.pairPhase = false;
+    this.nextUrgeAt = 0;
     this.zonesSeen = [];
+    this.milestonesSeen = [];
 
     buildOcean(this, MAX_M);
 
-    // Animated freediver: slow drift undulation always, a full fast wave per kick
     if (!this.anims.exists('fd-drift')) {
       const frames = Array.from({ length: 8 }, (_, i) => ({ key: 'fd-' + i }));
       this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
@@ -93,9 +112,8 @@ export class FreediveScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.diver, false, 0.15, 0.15);
     this.cameras.main.fadeIn(400);
 
-    // Tap anywhere = kick; SPACE too. The TURN button marks itself handled.
     this.input.on('pointerdown', (_p: Phaser.Input.Pointer, over: unknown[]) => {
-      if (over.length > 0) return; // tapped a button
+      if (over.length > 0) return;
       this.tryKick();
     });
     this.input.keyboard?.on('keydown-SPACE', () => this.tryKick());
@@ -105,7 +123,6 @@ export class FreediveScene extends Phaser.Scene {
     const laneTop = 120;
     this.add.rectangle(LANE_X, (laneTop + HIT_Y + 60) / 2, 52, HIT_Y - laneTop + 120, 0x02121f, 0.45)
       .setScrollFactor(0).setDepth(90);
-    // Hit zone
     this.add.circle(LANE_X, HIT_Y, 27, 0xffffff, 0).setStrokeStyle(4, 0xe8f4ff, 0.9)
       .setScrollFactor(0).setDepth(92);
     this.add.text(LANE_X, HIT_Y + 44, 'KICK', {
@@ -117,8 +134,11 @@ export class FreediveScene extends Phaser.Scene {
     const hud = 100;
     this.add.rectangle(24, 24, 200, 22, 0x02121f, 0.75).setOrigin(0, 0.5).setScrollFactor(0).setDepth(hud);
     this.o2Fill = this.add.rectangle(26, 24, 196, 16, 0x4be3a0).setOrigin(0, 0.5).setScrollFactor(0).setDepth(hud + 1);
-    this.add.text(24, 42, 'O₂', { fontFamily: 'monospace', fontSize: '13px', color: '#bcd9ea' })
-      .setScrollFactor(0).setDepth(hud);
+    // The calculation, made visible: estimated O2 needed to swim home
+    this.costMarker = this.add.rectangle(26, 24, 3, 22, 0xffffff, 0.95).setOrigin(0.5).setScrollFactor(0).setDepth(hud + 2);
+    this.add.text(24, 42, 'O₂  (▎= est. cost of the swim home)', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#bcd9ea',
+    }).setScrollFactor(0).setDepth(hud);
 
     this.depthText = this.add.text(W - 70, 16, '0 m', {
       fontFamily: 'monospace', fontSize: '26px', color: '#e8f4ff',
@@ -129,11 +149,15 @@ export class FreediveScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '13px', color: '#ffd166',
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(hud);
 
-    this.comboText = this.add.text(24, 66, '', {
+    this.nextMsText = this.add.text(W - 70, 68, '', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#8fc8e8',
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(hud);
+
+    this.comboText = this.add.text(24, 62, '', {
       fontFamily: 'monospace', fontSize: '16px', color: '#4be3a0',
     }).setScrollFactor(0).setDepth(hud);
 
-    this.phaseText = this.add.text(24, 90, '▼ descending', {
+    this.phaseText = this.add.text(24, 86, '▼ kicking down', {
       fontFamily: 'monospace', fontSize: '14px', color: '#8fc8e8',
     }).setScrollFactor(0).setDepth(hud);
 
@@ -142,7 +166,6 @@ export class FreediveScene extends Phaser.Scene {
       align: 'center', stroke: '#02121f', strokeThickness: 5, lineSpacing: 8,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hud + 2);
 
-    // TURN button: big, amber, impossible to miss
     const circle = this.add.circle(0, 0, 52, 0xd97706, 0.95).setStrokeStyle(4, 0xffd166, 1);
     const label = this.add.text(0, 0, '⤴\nTURN', {
       fontFamily: 'monospace', fontSize: '19px', color: '#ffffff', align: 'center', fontStyle: 'bold',
@@ -153,23 +176,54 @@ export class FreediveScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-T', () => this.turnAround());
     this.tweens.add({ targets: this.turnBtn, scale: 1.07, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    // How-to hint at dive start
-    this.flashBanner('Tap to the rhythm 🎵\nkick · kick · glide\n\n⤴ TURN to head home', 2600);
+    this.flashBanner('Tap to the rhythm 🎵\nkick · kick · glide\n\nPast −32 m: freefall.\n⤴ TURN with O₂ to spare!', 3000);
+  }
+
+  private estimatedCost(): number {
+    // Conservative estimate of the O2 the ascent will take (~0.85%/m)
+    return Math.min(100, this.depth * 0.85);
+  }
+
+  private nextMilestone(): { m: number; title: string } | null {
+    for (const ms of MILESTONES) {
+      if (this.maxDepth < ms.m) return ms;
+    }
+    return null;
   }
 
   private turnAround(): void {
-    if (this.turned || this.state !== 'diving') return;
-    this.turned = true;
+    if (this.phase === 'ascent' || this.state !== 'diving') return;
+    this.phase = 'ascent';
     this.vel = 0;
-    this.diver.setRotation(-Math.PI / 2); // heading up now
     this.turnBtn.setVisible(false);
-    this.phaseText.setText('▲ ascending').setColor('#4be3a0');
-    this.flashBanner('Heading up!\nKeep the rhythm.');
-  }
+    this.phaseText.setText('▲ the swim home').setColor('#4be3a0');
 
-  private playKickAnim(): void {
-    // One full dolphin-wave cycle, fast, then back to the lazy drift
-    this.diver.play('fd-swim');
+    // The turn: pike, arc sideways, come around head-up — like at the plate
+    const d = Math.floor(this.depth);
+    this.popup(`🏷️ −${d} m`, '#ffd166');
+    this.tweens.add({
+      targets: this.diver,
+      rotation: -Math.PI / 2,
+      x: this.diver.x + 34,
+      scaleY: 0.82,
+      duration: 520,
+      ease: 'Sine.easeInOut',
+      yoyo: false,
+      onComplete: () => {
+        this.diver.setScale(1.1);
+        this.tweens.add({ targets: this.diver, x: 180, duration: 400, ease: 'Sine.easeOut' });
+      },
+    });
+    // burst of bubbles at the turn
+    for (let i = 0; i < 7; i++) {
+      const b = this.add.image(this.diver.x + Phaser.Math.Between(-16, 16), this.diver.y + Phaser.Math.Between(-12, 12), 'bubble')
+        .setScale(0.3).setAlpha(0.8).setDepth(9);
+      this.tweens.add({
+        targets: b, y: b.y - Phaser.Math.Between(60, 120), alpha: 0, scale: 0.12,
+        duration: Phaser.Math.Between(700, 1200), onComplete: () => b.destroy(),
+      });
+    }
+    this.flashBanner('The only way out\nis up. Kick!');
   }
 
   private flashBanner(text: string, hold = 900): void {
@@ -187,9 +241,15 @@ export class FreediveScene extends Phaser.Scene {
     this.tweens.add({ targets: t, y: t.y - 46, alpha: 0, duration: 650, onComplete: () => t.destroy() });
   }
 
+  private spawnCue(type: CueType): void {
+    const img = this.add.image(LANE_X, 90, 'cue').setScrollFactor(0).setDepth(91);
+    if (type === 'posture') img.setTint(0x8fd8ff).setScale(0.85);
+    if (type === 'urge') img.setTint(0xff5d5d).setScale(1.15);
+    this.cues.push({ img, judged: false, type });
+  }
+
   private tryKick(): void {
     if (this.state !== 'diving') return;
-    // Nearest unjudged cue by timing distance to the hit line
     let best: Cue | null = null;
     let bestMs = Infinity;
     for (const c of this.cues) {
@@ -198,15 +258,40 @@ export class FreediveScene extends Phaser.Scene {
       if (ms < bestMs) { bestMs = ms; best = c; }
     }
     if (!best || bestMs > GOOD_MS + 120) {
-      // flailing in the water
       this.o2 = Math.max(0, this.o2 - O2_WASTED_TAP);
       this.breakFlow();
       this.popup('too soon!', '#ff9e9e');
       return;
     }
+
+    // Contractions must be resisted, not fought
+    if (best.type === 'urge') {
+      best.judged = true;
+      this.o2 = Math.max(0, this.o2 - O2_URGE_TAPPED);
+      this.breakFlow();
+      this.popup('fought the urge! −O₂', '#ff5d5d');
+      this.killCue(best, 0xff5d5d);
+      this.cameras.main.shake(140, 0.008);
+      return;
+    }
+
     best.judged = true;
     const perfect = bestMs <= PERFECT_MS;
     const good = bestMs <= GOOD_MS;
+
+    if (best.type === 'posture') {
+      if (good) {
+        this.popup(perfect ? 'streamline ✓' : 'adjusted', '#8fd8ff');
+        this.killCue(best, 0x8fd8ff);
+        this.postureMult = 1.18;
+        this.postureUntil = this.time.now + 4000;
+      } else {
+        this.popup('wobble', '#ffd166');
+        this.killCue(best, 0xffd166);
+      }
+      return;
+    }
+
     if (!good) {
       this.o2 = Math.max(0, this.o2 - O2_WASTED_TAP);
       this.breakFlow();
@@ -224,12 +309,11 @@ export class FreediveScene extends Phaser.Scene {
     this.killCue(best, perfect ? 0x4be3a0 : 0x8fc8e8);
     this.playKickAnim();
 
-    // FLOW STATE: long combo = the dive clicks into place
     if (!this.flowActive && this.combo >= 12) {
       this.flowActive = true;
       this.diver.setTint(0x9fe8ff);
       this.popup('FLOW STATE 🌊', '#8fd8ff');
-      this.flashBanner('FLOW STATE\nkicks hit harder', 1100);
+      this.flashBanner('FLOW STATE\nstronger kicks, calmer O₂', 1100);
     }
   }
 
@@ -242,6 +326,10 @@ export class FreediveScene extends Phaser.Scene {
     }
   }
 
+  private playKickAnim(): void {
+    this.diver.play('fd-swim');
+  }
+
   private killCue(c: Cue, tint: number): void {
     c.img.setTint(tint);
     this.tweens.add({ targets: c.img, scale: 1.7, alpha: 0, duration: 200, onComplete: () => c.img.destroy() });
@@ -251,62 +339,113 @@ export class FreediveScene extends Phaser.Scene {
     if (this.state !== 'diving') return;
     const dt = Math.min(deltaMs, 50) / 1000;
 
-    // ── Spawn cues in pairs (kick-kick ... glide), harder with depth ──
-    if (time >= this.nextCueAt) {
-      const img = this.add.image(LANE_X, 90, 'cue').setScrollFactor(0).setDepth(91);
-      this.cues.push({ img, judged: false });
-      if (!this.pairPhase) {
-        // second kick of the pair lands close behind
-        this.nextCueAt = time + Phaser.Math.Clamp(400 - this.maxDepth, 260, 400);
-      } else {
-        // glide phase before the next pair
-        const base = Phaser.Math.Clamp(1250 - this.maxDepth * 7, 560, 1250);
-        const jitter = this.maxDepth > 45 ? Phaser.Math.FloatBetween(0.85, 1.2) : 1;
-        this.nextCueAt = time + base * jitter;
+    // ── Cue spawning by phase ──
+    if (this.phase !== 'freefall') {
+      if (time >= this.nextCueAt) {
+        this.spawnCue('kick');
+        if (!this.pairPhase) {
+          this.nextCueAt = time + Phaser.Math.Clamp(400 - this.maxDepth * 0.6, 260, 400);
+        } else {
+          const base = this.phase === 'ascent'
+            ? Phaser.Math.Clamp(950 - this.depth * 3, 460, 950)
+            : Phaser.Math.Clamp(1250 - this.maxDepth * 7, 560, 1250);
+          const jitter = this.maxDepth > 45 ? Phaser.Math.FloatBetween(0.85, 1.2) : 1;
+          this.nextCueAt = time + base * jitter;
+        }
+        this.pairPhase = !this.pairPhase;
       }
-      this.pairPhase = !this.pairPhase;
+    } else if (time >= this.nextCueAt) {
+      // Freefall: rare posture checks — stay long, stay quiet
+      this.spawnCue('posture');
+      this.nextCueAt = time + Phaser.Math.Between(2400, 3800);
     }
-    this.cueSpeed = 240 + this.maxDepth * 2;
 
-    // ── Move cues; misses hurt ──
+    // Contractions: below 40% O2 the body starts demanding a breath
+    if (this.o2 < 40 && time >= this.nextUrgeAt) {
+      if (this.nextUrgeAt > 0) this.spawnCue('urge');
+      this.nextUrgeAt = time + Phaser.Math.Between(5500, 8500);
+    }
+
+    this.cueSpeed = 240 + Math.min(this.maxDepth, 200) * 2;
+
+    // ── Move cues; what happens when one slips past depends on its type ──
     for (const c of this.cues) {
       if (!c.img.active) continue;
       c.img.y += this.cueSpeed * dt;
       if (!c.judged && c.img.y > HIT_Y + (GOOD_MS / 1000) * this.cueSpeed + 8) {
         c.judged = true;
-        this.o2 = Math.max(0, this.o2 - O2_MISS);
-        this.breakFlow();
-        this.popup('missed', '#ff5d5d');
-        this.killCue(c, 0xff5d5d);
+        if (c.type === 'urge') {
+          this.popup('urge resisted ✓', '#4be3a0');
+          this.killCue(c, 0x4be3a0);
+        } else if (c.type === 'posture') {
+          this.o2 = Math.max(0, this.o2 - O2_POSTURE_MISS);
+          this.postureMult = 0.7;
+          this.postureUntil = time + 3000;
+          this.popup('posture broken', '#ffd166');
+          this.killCue(c, 0xffd166);
+        } else {
+          this.o2 = Math.max(0, this.o2 - O2_MISS);
+          this.breakFlow();
+          this.popup('missed', '#ff5d5d');
+          this.killCue(c, 0xff5d5d);
+        }
       }
     }
     this.cues = this.cues.filter(c => c.img.active);
 
-    // ── Record chase ──
-    const rec = getRecord('freedive');
-    if (!this.turned && !this.passedRecord && rec.depth > 0 && this.depth > rec.depth) {
-      this.passedRecord = true;
-      this.popup('🏆 NEW TERRITORY', '#ffd166');
-      this.cameras.main.flash(300, 255, 209, 102, false);
+    // ── Phase transitions & physics ──
+    if (time > this.postureUntil) this.postureMult = 1;
+
+    if (this.phase === 'kick' && this.depth >= FREEFALL_AT) {
+      this.phase = 'freefall';
+      this.vel = 0;
+      this.flashBanner('FREEFALL 🪶\nstop kicking — the ocean\ntakes you down for free', 1800);
+      this.phaseText.setText('▼ freefall').setColor('#9fd0e8');
+      this.cues.forEach(c => { if (!c.judged && c.type === 'kick') { c.judged = true; this.killCue(c, 0x557388); } });
     }
 
-    // ── Physics: kicks build velocity, water drag bleeds it ──
-    this.vel *= Math.exp(-1.3 * dt);
-    let passive = 0;
-    if (!this.turned && this.depth > 20) passive = 0.8; // freefall
-    if (this.turned && this.depth < 12) passive = 0.7; // positive buoyancy
-    const dir = this.turned ? -1 : 1;
-    this.depth = Math.max(0, this.depth + (this.vel + passive) * dir * dt);
+    if (this.phase === 'kick') {
+      this.vel *= Math.exp(-1.3 * dt);
+      this.depth += this.vel * dt;
+    } else if (this.phase === 'freefall') {
+      const sink = Math.min(3.4, 1.0 + (this.depth - FREEFALL_AT) * 0.022) * this.postureMult;
+      this.depth += sink * dt;
+    } else {
+      this.vel *= Math.exp(-1.3 * dt);
+      const buoy = this.depth < 12 ? 0.8 : 0;
+      this.depth = Math.max(0, this.depth - (this.vel + buoy) * dt);
+    }
     this.maxDepth = Math.max(this.maxDepth, this.depth);
     this.diver.y = SURFACE_Y + 20 + this.depth * PX_PER_M;
 
-    // ── O₂: effort grows with depth, flow state = efficiency ──
-    const depthLoad = Math.min(this.depth, 120) / 90;
-    this.o2 -= (O2_DRAIN + depthLoad) * (this.flowActive ? 0.78 : 1) * dt;
+    // ── O₂: each phase has its own price; flow is efficiency ──
+    let drain: number;
+    if (this.phase === 'kick') drain = (DRAIN_KICK + this.depth / 200) * (this.flowActive ? 0.8 : 1);
+    else if (this.phase === 'freefall') drain = DRAIN_FREEFALL;
+    else drain = (DRAIN_ASCENT + this.depth / 400) * (this.flowActive ? 0.65 : 1);
+    this.o2 -= drain * dt;
     if (this.o2 <= 0) return this.blackout();
 
-    // ── Zone crossings ──
-    if (!this.turned) {
+    // ── The calculation: warn once when the margin gets thin ──
+    const cost = this.estimatedCost();
+    if (this.phase !== 'ascent' && !this.turnWarned && this.o2 < cost + 12) {
+      this.turnWarned = true;
+      this.flashBanner('⚠ the swim home\nis getting expensive', 1300);
+      this.tweens.add({ targets: this.turnBtn, scale: 1.3, duration: 250, yoyo: true, repeat: 3 });
+    }
+
+    // ── Milestones (descent only) ──
+    for (const ms of MILESTONES) {
+      if (this.phase !== 'ascent' && this.depth > ms.m && !this.milestonesSeen.includes(ms.m)) {
+        this.milestonesSeen.push(ms.m);
+        this.popup(`−${ms.m} m · ${ms.title}`, '#ffd166');
+      }
+    }
+    const nx = this.nextMilestone();
+    this.nextMsText.setText(nx ? `next: −${nx.m} m "${nx.title}"` : '');
+
+    // ── Zones ──
+    if (this.phase !== 'ascent') {
       for (const z of ZONES) {
         if (this.depth > z.m && !this.zonesSeen.includes(z.m)) {
           this.zonesSeen.push(z.m);
@@ -316,14 +455,24 @@ export class FreediveScene extends Phaser.Scene {
       }
     }
 
+    // ── Record chase ──
+    const rec = getRecord('freedive');
+    if (this.phase !== 'ascent' && !this.passedRecord && rec.depth > 0 && this.depth > rec.depth) {
+      this.passedRecord = true;
+      this.popup('🏆 NEW TERRITORY', '#ffd166');
+      this.cameras.main.flash(300, 255, 209, 102, false);
+    }
+
     // ── Surfaced? ──
-    if (this.turned && this.depth <= 0.05 && this.maxDepth >= 3) return this.surfaced();
+    if (this.phase === 'ascent' && this.depth <= 0.05 && this.maxDepth >= 3) return this.surfaced();
 
     // ── HUD / lighting ──
     updateLighting(this.lighting, this.depth, this.diver.x, this.diver.y);
     const frac = this.o2 / O2_MAX;
     this.o2Fill.width = 196 * frac;
     this.o2Fill.fillColor = frac > 0.5 ? 0x4be3a0 : frac > 0.25 ? 0xffd166 : 0xff5d5d;
+    this.costMarker.setX(26 + 196 * (cost / 100));
+    this.costMarker.setFillStyle(this.o2 < cost ? 0xff5d5d : 0xffffff, 0.95);
     this.dangerV.setAlpha(frac < 0.22 ? (0.22 - frac) * 1.6 + Math.sin(time / 150) * 0.05 : 0);
     this.depthText.setText(`${this.depth.toFixed(0)} m`);
     this.comboText.setText(this.combo >= 3 ? `combo ×${this.combo}` : '');
@@ -334,8 +483,11 @@ export class FreediveScene extends Phaser.Scene {
     const depth = Math.floor(this.maxDepth);
     const isRecord = submitRecord('freedive', depth);
     const rec = getRecord('freedive');
+    const title = titleFor(depth);
     this.showEnd(
-      isRecord ? `NEW RECORD! 🏆\n−${depth} m — ${rec.name}` : `Clean dive!\n−${depth} m\n\n🏆 ${rec.depth} m · ${rec.name}`,
+      isRecord
+        ? `NEW RECORD! 🏆\n−${depth} m — ${rec.name}\n"${title}"`
+        : `Clean dive!\n−${depth} m · "${title}"\n\n🏆 ${rec.depth} m · ${rec.name}`,
       'DIVE AGAIN',
     );
   }

@@ -10,6 +10,30 @@ export const ZONES = [
   { m: 500, label: 'THE MIDNIGHT ZONE' },
 ];
 
+/** Depth milestones — the progression ladder that keeps divers coming back. */
+export const MILESTONES = [
+  { m: 20, title: 'First Dip' },
+  { m: 30, title: 'Blue Believer' },
+  { m: 40, title: 'The Calling' },
+  { m: 60, title: 'The Door to the Deep' },
+  { m: 80, title: 'Deep Runner' },
+  { m: 100, title: 'HECTOMETER' },
+  { m: 130, title: 'Past the Record Books' },
+  { m: 160, title: 'Superhuman' },
+  { m: 200, title: 'Twilight Knocker' },
+  { m: 300, title: 'The Abyss Calls' },
+  { m: 500, title: 'Midnight Diver' },
+  { m: 1000, title: 'One With the Ocean' },
+];
+
+export function titleFor(depth: number): string {
+  let t = 'Surface Dweller';
+  for (const ms of MILESTONES) {
+    if (depth >= ms.m) t = ms.title;
+  }
+  return t;
+}
+
 /** Ambient creatures by depth (emoji for now). */
 function creaturesAt(m: number): string[] {
   if (m < 200) return ['🐢', '🐬', '🐠', '🐟', '🐡'];

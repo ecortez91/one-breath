@@ -6,10 +6,19 @@ Two ways down, one rule: **depth only counts if you surface.**
 
 ## 🌬 Freedive mode
 
-Pure technique, rhythm-game style. Kick cues fall toward the hit zone — tap at the
-exact moment for a PERFECT kick. The deeper you go, the faster and more irregular
-the rhythm gets. Freefall takes over past 20 m. Tap TURN with enough O₂ left to
-make it home, or the ocean keeps your depth.
+A real dive in three acts, rhythm-game style:
+
+1. **Kick down** — cues fall in pairs (kick-kick-glide, like real finning). Tap on time.
+2. **Freefall (−32 m)** — you stop kicking; the ocean takes you down for free. Hold
+   your streamline through occasional posture checks and watch the depth pile up.
+3. **The swim home** — tap TURN (watch the flip) and grind back up. This is where
+   the O₂ goes.
+
+Below 40% O₂ the contractions start — red cues you must **resist, not tap**, like a
+real urge to breathe. The white marker on your O₂ bar estimates what the swim home
+costs from your current depth: the whole game is that calculation. Depth milestones
+("The Door to the Deep", "HECTOMETER"…) mark your progression, and real ocean zones
+wait below: the Twilight Zone at 200 m, the Midnight Zone at 500 m.
 
 ## 🪨 Cave dive mode
 

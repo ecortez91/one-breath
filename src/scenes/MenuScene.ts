@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord } from './records';
+import { titleFor } from './world';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -93,9 +94,11 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const rec = getRecord(key as 'freedive' | 'cave');
-    this.add.text(width / 2, y + 52,
-      rec.depth > 0 ? `🏆 ${rec.depth} m · ${rec.name}` : 'no record yet — set one!', {
-      fontFamily: 'monospace', fontSize: '15px', color: rec.depth > 0 ? '#ffd166' : '#5a8ba8',
+    const label = rec.depth > 0
+      ? `🏆 ${rec.depth} m · ${rec.name} · "${titleFor(rec.depth)}"`
+      : 'no record yet — set one!';
+    this.add.text(width / 2, y + 52, label, {
+      fontFamily: 'monospace', fontSize: '13px', color: rec.depth > 0 ? '#ffd166' : '#5a8ba8',
     }).setOrigin(0.5);
 
     card.on('pointerdown', () => this.scene.start(key));
