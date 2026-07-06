@@ -131,13 +131,14 @@ export function makeTextures(scene: Phaser.Scene): void {
       g.fillRect(100, 25, 18, 6);
       g.fillStyle(0xd9b38c, 1);
       g.fillCircle(119, 28, 3.2);
-      // two legs in opposite phase, flutter grows toward the feet
-      for (const [baseY, legPhi] of [[25, phi], [31, phi + Math.PI]] as Array<[number, number]>) {
-        const legOff = (x: number) => Math.sin(legPhi) * ((52 - x) / 52) * 7;
+      // freestyle flutter: a wave TRAVELS down each leg (hip -> ankle whip),
+      // legs close together, opposite phase — not a rigid scissor pivot
+      for (const [baseY, legPhase] of [[26.5, 0], [29.5, Math.PI]] as Array<[number, number]>) {
+        const legOff = (x: number) => Math.sin(x * 0.13 - phi + legPhase) * ((52 - x) / 52) * 6.5;
         g.fillStyle(suit, 1);
-        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY + legOff(x), 4);
+        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY + legOff(x), 3.8);
         const footY = baseY + legOff(26);
-        const tipY = footY + Math.sin(legPhi) * 4;
+        const tipY = baseY + legOff(10) * 1.35;
         g.fillStyle(finC, 1);
         g.fillTriangle(27, footY, 6, tipY - 4, 9, tipY + 5);
       }
@@ -158,9 +159,9 @@ export function makeTextures(scene: Phaser.Scene): void {
       g.fillRect(100, 25, 18, 6);
       g.fillStyle(0xd9b38c, 1);
       g.fillCircle(119, 28, 3.2);
-      for (const baseY of [25, 31]) {
+      for (const baseY of [26.5, 29.5]) {
         g.fillStyle(suit, 1);
-        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY, 4);
+        for (let x = 50; x >= 26; x -= 3) g.fillCircle(x, baseY, 3.8);
         g.fillStyle(finC, 1);
         g.fillTriangle(27, baseY, 6, baseY - 4, 9, baseY + 5);
       }
