@@ -192,7 +192,7 @@ export class CaveScene extends Phaser.Scene {
       const y = SURFACE_Y + jm * PX_PER_M;
       const obj = hz.kind === 'jelly'
         ? this.add.image(x, y, 'jelly').setDepth(6)
-        : this.add.text(x, y, hz.kind, { fontSize: hz.kind === '🦈' ? '46px' : '40px' }).setOrigin(0.5).setDepth(6);
+        : this.add.text(x, y, hz.kind, { fontSize: hz.kind === '🦈' ? '46px' : '40px', padding: { y: 12 } }).setOrigin(0.5).setDepth(6);
       const driftMax = Math.min(hz.kind === '🦈' ? 140 : 90, (c.max - c.min) / 2);
       const speed = hz.kind === '🦈' ? Phaser.Math.Between(1500, 2200) : Phaser.Math.Between(2200, 3600);
       const targetX = Phaser.Math.Clamp(x + Phaser.Math.Between(-driftMax, driftMax), c.min, c.max);
@@ -233,6 +233,7 @@ export class CaveScene extends Phaser.Scene {
     this.banner = this.add.text(W / 2, 220, '', {
       fontFamily: 'Georgia, serif', fontSize: '30px', color: '#e8f4ff',
       align: 'center', stroke: '#02121f', strokeThickness: 5, lineSpacing: 8,
+      padding: { y: 10 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hud + 2);
   }
 
@@ -349,6 +350,7 @@ export class CaveScene extends Phaser.Scene {
 
   private surfaced(): void {
     this.state = 'breathing';
+    this.lighting.dangerVignette.setAlpha(0);
     const depth = Math.floor(this.maxDepth);
     const isRecord = submitRecord('cave', depth);
     const rec = getRecord('cave');

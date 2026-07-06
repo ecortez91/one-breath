@@ -44,7 +44,7 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    this.add.text(width / 2, 84, '🤿', { fontSize: '54px' }).setOrigin(0.5);
+    this.add.text(width / 2, 84, '🤿', { fontSize: '54px', padding: { y: 14 } }).setOrigin(0.5);
     this.add.text(width / 2, 148, 'ONE BREATH', {
       fontFamily: 'Georgia, serif', fontSize: '44px', color: '#e8f4ff', letterSpacing: 6,
     }).setOrigin(0.5);
@@ -86,7 +86,7 @@ export class MenuScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
 
     this.add.text(width / 2, y - 52, title, {
-      fontFamily: 'monospace', fontSize: '26px', color: accent,
+      fontFamily: 'monospace', fontSize: '26px', color: accent, padding: { y: 8 },
     }).setOrigin(0.5);
 
     this.add.text(width / 2, y - 2, desc, {

@@ -185,6 +185,7 @@ export class FreediveScene extends Phaser.Scene {
     this.banner = this.add.text(W / 2 - 40, 240, '', {
       fontFamily: 'Georgia, serif', fontSize: '28px', color: '#e8f4ff',
       align: 'center', stroke: '#02121f', strokeThickness: 5, lineSpacing: 8,
+      padding: { y: 10 },
     }).setOrigin(0.5).setScrollFactor(0).setDepth(hud + 2);
 
     const circle = this.add.circle(0, 0, 52, 0xd97706, 0.95).setStrokeStyle(4, 0xffd166, 1);
@@ -277,6 +278,7 @@ export class FreediveScene extends Phaser.Scene {
   private popup(text: string, color: string): void {
     const t = this.add.text(this.diver.x, this.diver.y - 46, text, {
       fontFamily: 'monospace', fontSize: '22px', color, stroke: '#02121f', strokeThickness: 4,
+      padding: { y: 6 },
     }).setOrigin(0.5).setDepth(50);
     this.tweens.add({ targets: t, y: t.y - 46, alpha: 0, duration: 650, onComplete: () => t.destroy() });
   }
@@ -520,6 +522,7 @@ export class FreediveScene extends Phaser.Scene {
 
   private surfaced(): void {
     this.state = 'done';
+    this.dangerV.setAlpha(0); // clear the low-O2 tint from the end screen
     const depth = Math.floor(this.maxDepth);
     const isRecord = submitRecord('freedive', depth);
     const rec = getRecord('freedive');

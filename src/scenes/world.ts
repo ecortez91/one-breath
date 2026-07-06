@@ -69,9 +69,9 @@ export function buildOcean(scene: Phaser.Scene, maxM: number): void {
   const worldH = worldHeight(maxM);
 
   scene.add.rectangle(W / 2, SURFACE_Y / 2 - 100, W, SURFACE_Y + 200, 0xaed9f2).setDepth(0);
-  scene.add.text(W / 2, SURFACE_Y - 240, '☀️', { fontSize: '64px' }).setOrigin(0.5).setDepth(1);
-  scene.add.text(100, SURFACE_Y - 170, '☁️', { fontSize: '44px' }).setDepth(1);
-  scene.add.text(360, SURFACE_Y - 200, '☁️', { fontSize: '36px' }).setDepth(1);
+  scene.add.text(W / 2, SURFACE_Y - 240, '☀️', { fontSize: '64px', padding: { y: 16 } }).setOrigin(0.5).setDepth(1);
+  scene.add.text(100, SURFACE_Y - 170, '☁️', { fontSize: '44px', padding: { y: 12 } }).setDepth(1);
+  scene.add.text(360, SURFACE_Y - 200, '☁️', { fontSize: '36px', padding: { y: 10 } }).setDepth(1);
 
   const bandH = 300;
   const bands = Math.ceil((worldH - SURFACE_Y) / bandH);
@@ -84,7 +84,7 @@ export function buildOcean(scene: Phaser.Scene, maxM: number): void {
   }
 
   for (let x = 0; x < W; x += 48) {
-    const wave = scene.add.text(x, SURFACE_Y - 8, '🌊', { fontSize: '28px' }).setDepth(2).setAlpha(0.9);
+    const wave = scene.add.text(x, SURFACE_Y - 8, '🌊', { fontSize: '28px', padding: { y: 8 } }).setDepth(2).setAlpha(0.9);
     scene.tweens.add({
       targets: wave,
       y: SURFACE_Y - 2,
@@ -120,7 +120,7 @@ export function buildOcean(scene: Phaser.Scene, maxM: number): void {
 
   const floorY = SURFACE_Y + maxM * PX_PER_M + 60;
   scene.add.rectangle(W / 2, floorY + 60, W, 160, 0x0a0f14).setDepth(2);
-  scene.add.text(W / 2, floorY, '🪸  🐚  🪨  🐚  🪸', { fontSize: '34px' }).setOrigin(0.5).setDepth(2).setAlpha(0.7);
+  scene.add.text(W / 2, floorY, '🪸  🐚  🪨  🐚  🪸', { fontSize: '34px', padding: { y: 10 } }).setOrigin(0.5).setDepth(2).setAlpha(0.7);
 }
 
 /** Passing sea life, denser near the surface, stranger with depth. */
@@ -133,6 +133,7 @@ function buildAmbientCreatures(scene: Phaser.Scene, maxM: number): void {
     const y = SURFACE_Y + m * PX_PER_M + Phaser.Math.Between(-40, 40);
     const t = scene.add.text(x, y, emoji, {
       fontSize: Phaser.Math.Between(20, 34) + 'px',
+      padding: { y: 10 },
     }).setOrigin(0.5).setAlpha(0.75).setDepth(3);
     const drift = Phaser.Math.Between(60, 150) * (Math.random() > 0.5 ? 1 : -1);
     t.setFlipX(drift > 0);
