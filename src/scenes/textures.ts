@@ -73,10 +73,15 @@ export function makeTextures(scene: Phaser.Scene): void {
     const suitLite = 0x2f5d73;
     const finC = 0x3fa7d6;
     const finLite = 0x7cc6e8;
+    const HIP = 54; // the wave starts at the hips — torso and head stay locked
     for (let f = 0; f < 8; f++) {
       const phi = (f / 8) * Math.PI * 2;
-      // wave offset: ~0 at the head (x=84), up to ±11px at the fin (x→0)
-      const off = (x: number) => Math.sin(x * 0.085 - phi) * (1.5 + ((84 - x) / 84) * 9.5);
+      // wave offset: exactly 0 from head through torso, growing hips -> legs -> fin
+      const off = (x: number) => {
+        if (x >= HIP) return 0;
+        const reach = (HIP - x) / HIP; // 0 at the hips, 1 at the fin end
+        return Math.sin(x * 0.11 - phi) * Math.pow(reach, 1.15) * 12;
+      };
       g.clear();
       // body chain: overlapping circles along the spine (torso thick, legs slim)
       g.fillStyle(suit, 1);
