@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
-import { W, PX_PER_M, SURFACE_Y, buildOcean, buildLighting, updateLighting, type Lighting } from './world';
+import {
+  W, PX_PER_M, SURFACE_Y, ZONES,
+  buildOcean, buildLighting, updateLighting, type Lighting,
+} from './world';
+
+const MAX_M = 1000; // to the midnight zone — nobody has survived it yet
 
 const O2_MAX = 100;
 const O2_DRAIN = 1.7; // per second
@@ -16,8 +21,9 @@ const GOOD_MS = 160;
 type Cue = { img: Phaser.GameObjects.Image; judged: boolean };
 
 export class FreediveScene extends Phaser.Scene {
-  private diver!: Phaser.GameObjects.Image;
+  private diver!: Phaser.GameObjects.Sprite;
   private lighting!: Lighting;
+  private zonesSeen: number[] = [];
 
   private depth = 0;
   private maxDepth = 0;
@@ -27,7 +33,6 @@ export class FreediveScene extends Phaser.Scene {
   private state: 'diving' | 'blackout' | 'done' = 'diving';
   private combo = 0;
   private flowActive = false;
-  private kickPhase = false; // alternates up/down stroke for the animation
   private passedRecord = false;
 
   private cues: Cue[] = [];
@@ -57,16 +62,27 @@ export class FreediveScene extends Phaser.Scene {
     this.state = 'diving';
     this.combo = 0;
     this.flowActive = false;
-    this.kickPhase = false;
     this.passedRecord = false;
     this.cues = [];
     this.nextCueAt = 0;
     this.pairPhase = false;
+    this.zonesSeen = [];
 
-    buildOcean(this);
-    // Animated freediver: drawn facing right, rotated to face down; flipX on turn
-    this.diver = this.add.image(180, SURFACE_Y + 20, 'fd-glide')
+    buildOcean(this, MAX_M);
+
+    // Animated freediver: slow drift undulation always, a full fast wave per kick
+    if (!this.anims.exists('fd-drift')) {
+      const frames = Array.from({ length: 8 }, (_, i) => ({ key: 'fd-' + i }));
+      this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
+      this.anims.create({ key: 'fd-swim', frames, frameRate: 26, repeat: 0 });
+    }
+    this.diver = this.add.sprite(180, SURFACE_Y + 20, 'fd-0')
       .setOrigin(0.5).setDepth(10).setRotation(Math.PI / 2).setScale(1.1);
+    this.diver.play('fd-drift');
+    this.diver.on(Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + 'fd-swim', () => {
+      if (this.diver.active) this.diver.play('fd-drift');
+    });
+
     this.lighting = buildLighting(this);
     this.dangerV = this.lighting.dangerVignette;
 
@@ -152,13 +168,8 @@ export class FreediveScene extends Phaser.Scene {
   }
 
   private playKickAnim(): void {
-    // Dolphin kick: alternate up/down stroke, settle back into the glide
-    this.kickPhase = !this.kickPhase;
-    const first = this.kickPhase ? 'fd-kick-up' : 'fd-kick-down';
-    const second = this.kickPhase ? 'fd-kick-down' : 'fd-kick-up';
-    this.diver.setTexture(first);
-    this.time.delayedCall(90, () => { if (this.diver.active) this.diver.setTexture(second); });
-    this.time.delayedCall(220, () => { if (this.diver.active) this.diver.setTexture('fd-glide'); });
+    // One full dolphin-wave cycle, fast, then back to the lazy drift
+    this.diver.play('fd-swim');
   }
 
   private flashBanner(text: string, hold = 900): void {
@@ -289,9 +300,21 @@ export class FreediveScene extends Phaser.Scene {
     this.maxDepth = Math.max(this.maxDepth, this.depth);
     this.diver.y = SURFACE_Y + 20 + this.depth * PX_PER_M;
 
-    // ── O₂ ──
-    this.o2 -= (O2_DRAIN + this.depth / 55) * dt;
+    // ── O₂: effort grows with depth, flow state = efficiency ──
+    const depthLoad = Math.min(this.depth, 120) / 90;
+    this.o2 -= (O2_DRAIN + depthLoad) * (this.flowActive ? 0.78 : 1) * dt;
     if (this.o2 <= 0) return this.blackout();
+
+    // ── Zone crossings ──
+    if (!this.turned) {
+      for (const z of ZONES) {
+        if (this.depth > z.m && !this.zonesSeen.includes(z.m)) {
+          this.zonesSeen.push(z.m);
+          this.flashBanner(`— ${z.m} m —\n${z.label}`, 1600);
+          this.cameras.main.flash(400, 20, 40, 80, false);
+        }
+      }
+    }
 
     // ── Surfaced? ──
     if (this.turned && this.depth <= 0.05 && this.maxDepth >= 3) return this.surfaced();

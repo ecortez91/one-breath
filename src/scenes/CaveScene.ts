@@ -2,22 +2,32 @@ import Phaser from 'phaser';
 import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
 import {
-  W, PX_PER_M, SURFACE_Y, MAX_DEPTH_M, WORLD_H,
-  buildOcean, buildLighting, updateLighting, type Lighting,
+  W, PX_PER_M, SURFACE_Y, ZONES,
+  buildOcean, buildLighting, updateLighting, worldHeight, type Lighting,
 } from './world';
 
 const O2_MAX = 100;
 const O2_BASE_DRAIN = 2.2;
 const O2_SWIM_DRAIN = 1.6;
 const O2_BUBBLE = 14;
-const O2_JELLY_HIT = 18;
 
+const MAX_M = 400; // sunlight zone, twilight zone, and the top of the dark
+const WORLD_H = worldHeight(MAX_M);
 const CAVE_START_M = 24; // open water above, cave walls below
-type Pickup = { obj: Phaser.GameObjects.Image; alive: boolean };
+
+// The deeper the cave, the worse its residents
+const HAZARDS = [
+  { fromM: 12, toM: 150, kind: 'jelly' as const, dmg: 18 },
+  { fromM: 150, toM: 280, kind: '🦑', dmg: 26 },
+  { fromM: 280, toM: 400, kind: '🦈', dmg: 35 },
+];
+
+type Pickup = { obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text; alive: boolean; dmg: number };
 type CaveBand = { m: number; gapX: number; gapW: number };
 
 export class CaveScene extends Phaser.Scene {
-  private diver!: Phaser.GameObjects.Text;
+  private diver!: Phaser.GameObjects.Sprite;
+  private zonesSeen: number[] = [];
   private body!: Phaser.Physics.Arcade.Body;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
@@ -51,8 +61,9 @@ export class CaveScene extends Phaser.Scene {
     this.bubbles = [];
     this.jellies = [];
     this.caveBands = [];
+    this.zonesSeen = [];
 
-    buildOcean(this);
+    buildOcean(this, MAX_M);
     this.buildDiver();
     this.buildCave();
     this.buildPickups();
@@ -69,10 +80,16 @@ export class CaveScene extends Phaser.Scene {
   }
 
   private buildDiver(): void {
-    this.diver = this.add.text(W / 2, SURFACE_Y + 30, '🤿', { fontSize: '44px' }).setOrigin(0.5).setDepth(10);
+    if (!this.anims.exists('fd-drift')) {
+      const frames = Array.from({ length: 8 }, (_, i) => ({ key: 'fd-' + i }));
+      this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
+      this.anims.create({ key: 'fd-swim', frames, frameRate: 26, repeat: 0 });
+    }
+    this.diver = this.add.sprite(W / 2, SURFACE_Y + 30, 'fd-0').setOrigin(0.5).setDepth(10);
+    this.diver.play('fd-drift');
     this.physics.add.existing(this.diver);
     this.body = this.diver.body as Phaser.Physics.Arcade.Body;
-    this.body.setSize(36, 36, true);
+    this.body.setSize(52, 30, true);
     this.body.setMaxVelocity(200, 230);
     this.body.setDrag(160, 140);
     this.body.setCollideWorldBounds(true);
@@ -103,8 +120,8 @@ export class CaveScene extends Phaser.Scene {
     // The gap wanders and narrows with depth.
     this.walls = this.physics.add.staticGroup();
     let gapX = W / 2;
-    for (let m = CAVE_START_M; m < MAX_DEPTH_M - 4; m += Phaser.Math.FloatBetween(7, 10)) {
-      const prog = m / MAX_DEPTH_M;
+    for (let m = CAVE_START_M; m < MAX_M - 4; m += Phaser.Math.FloatBetween(7, 10)) {
+      const prog = m / MAX_M;
       const gapW = Phaser.Math.Linear(300, 150, prog);
       gapX = Phaser.Math.Clamp(
         gapX + Phaser.Math.Between(-80, 80),
@@ -150,7 +167,7 @@ export class CaveScene extends Phaser.Scene {
   private buildPickups(): void {
     // Air bubbles along the corridor: denser near the surface, sparse deep down
     let m = 4;
-    while (m < MAX_DEPTH_M - 4) {
+    while (m < MAX_M - 4) {
       const c = this.corridorAt(m);
       const x = Phaser.Math.Between(c.min, c.max);
       const y = SURFACE_Y + m * PX_PER_M + Phaser.Math.Between(-20, 20);
@@ -163,27 +180,36 @@ export class CaveScene extends Phaser.Scene {
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
-      this.bubbles.push({ obj: img, alive: true });
+      this.bubbles.push({ obj: img, alive: true, dmg: 0 });
       m += Phaser.Math.FloatBetween(2, 2.5) + (m / 30);
     }
 
+    // Hazards: jellyfish in the shallows, squid in the twilight, sharks in the dark
     let jm = 12;
-    while (jm < MAX_DEPTH_M - 2) {
+    while (jm < MAX_M - 2) {
+      const hz = HAZARDS.find(h => jm >= h.fromM && jm < h.toM) ?? HAZARDS[HAZARDS.length - 1];
       const c = this.corridorAt(jm);
       const x = Phaser.Math.Between(c.min, c.max);
       const y = SURFACE_Y + jm * PX_PER_M;
-      const img = this.add.image(x, y, 'jelly').setDepth(6);
-      const driftMax = Math.min(90, (c.max - c.min) / 2);
+      const obj = hz.kind === 'jelly'
+        ? this.add.image(x, y, 'jelly').setDepth(6)
+        : this.add.text(x, y, hz.kind, { fontSize: hz.kind === '🦈' ? '46px' : '40px' }).setOrigin(0.5).setDepth(6);
+      const driftMax = Math.min(hz.kind === '🦈' ? 140 : 90, (c.max - c.min) / 2);
+      const speed = hz.kind === '🦈' ? Phaser.Math.Between(1500, 2200) : Phaser.Math.Between(2200, 3600);
+      const targetX = Phaser.Math.Clamp(x + Phaser.Math.Between(-driftMax, driftMax), c.min, c.max);
+      if (hz.kind !== 'jelly') (obj as Phaser.GameObjects.Text).setFlipX(targetX > x);
       this.tweens.add({
-        targets: img,
-        x: Phaser.Math.Clamp(x + Phaser.Math.Between(-driftMax, driftMax), c.min, c.max),
+        targets: obj,
+        x: targetX,
         y: y - Phaser.Math.Between(20, 50),
-        duration: Phaser.Math.Between(2200, 3600),
+        duration: speed,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',
+        onYoyo: () => { if (hz.kind !== 'jelly') (obj as Phaser.GameObjects.Text).setFlipX(!(obj as Phaser.GameObjects.Text).flipX); },
+        onRepeat: () => { if (hz.kind !== 'jelly') (obj as Phaser.GameObjects.Text).setFlipX(targetX > x); },
       });
-      this.jellies.push({ obj: img, alive: true });
+      this.jellies.push({ obj, alive: true, dmg: hz.dmg });
       jm += Phaser.Math.FloatBetween(7, 12) - Math.min(4, jm / 30);
     }
   }
@@ -275,11 +301,21 @@ export class CaveScene extends Phaser.Scene {
         });
       }
     }
+    // Zone announcements
+    for (const z of ZONES) {
+      if (z.m < MAX_M && depth > z.m && !this.zonesSeen.includes(z.m)) {
+        this.zonesSeen.push(z.m);
+        this.banner.setText(`— ${z.m} m —\n${z.label}`).setAlpha(1).setScale(0.8);
+        this.tweens.add({ targets: this.banner, scale: 1, duration: 250, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: this.banner, alpha: 0, duration: 500, delay: 1700 });
+      }
+    }
+
     if (time > this.invulnUntil) {
       for (const j of this.jellies) {
         if (!j.alive) continue;
-        if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, j.obj.x, j.obj.y) < 36) {
-          this.o2 = Math.max(0, this.o2 - O2_JELLY_HIT);
+        if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, j.obj.x, j.obj.y) < 38) {
+          this.o2 = Math.max(0, this.o2 - j.dmg);
           this.stunUntil = time + 650;
           this.invulnUntil = time + 1300;
           this.body.setVelocity(this.body.velocity.x * -0.6, this.body.velocity.y * -0.6);
