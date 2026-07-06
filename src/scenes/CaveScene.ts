@@ -85,8 +85,7 @@ export class CaveScene extends Phaser.Scene {
       this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
       this.anims.create({ key: 'fd-swim', frames, frameRate: 26, repeat: 0 });
     }
-    this.diver = this.add.sprite(W / 2, SURFACE_Y + 30, 'fd-0').setOrigin(0.5).setDepth(10);
-    this.diver.play('fd-drift');
+    this.diver = this.add.sprite(W / 2, SURFACE_Y + 30, 'fd-straight').setOrigin(0.5).setDepth(10);
     this.physics.add.existing(this.diver);
     this.body = this.diver.body as Phaser.Physics.Arcade.Body;
     this.body.setSize(52, 30, true);
@@ -274,6 +273,15 @@ export class CaveScene extends Phaser.Scene {
 
     this.body.setAcceleration(ax, ay);
     if (this.body.velocity.x !== 0) this.diver.setFlipX(this.body.velocity.x < 0);
+
+    // Fins only move when he's actually swimming
+    const moving = this.body.velocity.length() > 50;
+    if (moving) {
+      this.diver.play('fd-drift', true);
+    } else if (this.diver.anims.isPlaying) {
+      this.diver.stop();
+      this.diver.setTexture('fd-straight');
+    }
 
     if (this.state === 'breathing') {
       this.o2 = Math.min(O2_MAX, this.o2 + 45 * dt);

@@ -111,6 +111,42 @@ export function makeTextures(scene: Phaser.Scene): void {
       g.fillTriangle(27, hingeY, 3, tipY + 10, 9, tipY - 4);
       g.generateTexture('fd-' + f, 122, 56);
     }
+
+    // Straight glide pose (no wave — freedivers hold a still streamline)
+    const drawStraight = () => {
+      g.fillStyle(suit, 1);
+      for (let x = 82; x >= 26; x -= 3) g.fillCircle(x, 28, x > 48 ? 8 : 5.5);
+      g.fillStyle(suitLite, 0.9);
+      g.fillCircle(64, 28, 4.5);
+      g.fillCircle(58, 28, 4.5);
+      g.fillStyle(suit, 1);
+      g.fillCircle(92, 28, 10);
+      g.fillStyle(0x9fe8ff, 0.95);
+      g.fillRoundedRect(95, 23, 7, 6, 2);
+      g.fillStyle(suit, 1);
+      g.fillRect(100, 25, 18, 6);
+      g.fillStyle(0xd9b38c, 1);
+      g.fillCircle(119, 28, 3.2);
+      g.fillStyle(finC, 1);
+      g.fillTriangle(27, 28, 3, 18, 8, 35);
+      g.fillStyle(finLite, 0.85);
+      g.fillTriangle(27, 28, 3, 38, 9, 24);
+    };
+    g.clear();
+    drawStraight();
+    g.generateTexture('fd-straight', 122, 56);
+
+    // Surface float: same body, plus a snorkel breaking the surface
+    g.clear();
+    drawStraight();
+    g.lineStyle(5, 0xff8c42, 1);
+    g.beginPath();
+    g.moveTo(87, 22);
+    g.lineTo(87, 4);
+    g.strokePath();
+    g.fillStyle(0xff8c42, 1);
+    g.fillCircle(87, 4, 3.5);
+    g.generateTexture('fd-float', 122, 56);
   }
 
   // Soft radial glow (diver's "light" in the dark depths)

@@ -39,7 +39,8 @@ export class FreediveScene extends Phaser.Scene {
   private vel = 0;
   private phase: Phase = 'kick';
   private o2 = O2_MAX;
-  private state: 'diving' | 'blackout' | 'done' = 'diving';
+  private state: 'ready' | 'diving' | 'blackout' | 'done' = 'ready';
+  private bobTween?: Phaser.Tweens.Tween;
   private combo = 0;
   private flowActive = false;
   private passedRecord = false;
@@ -74,7 +75,7 @@ export class FreediveScene extends Phaser.Scene {
     this.vel = 0;
     this.phase = 'kick';
     this.o2 = O2_MAX;
-    this.state = 'diving';
+    this.state = 'ready';
     this.combo = 0;
     this.flowActive = false;
     this.passedRecord = false;
@@ -95,11 +96,27 @@ export class FreediveScene extends Phaser.Scene {
       this.anims.create({ key: 'fd-drift', frames, frameRate: 5, repeat: -1 });
       this.anims.create({ key: 'fd-swim', frames, frameRate: 26, repeat: 0 });
     }
-    this.diver = this.add.sprite(180, SURFACE_Y + 20, 'fd-0')
-      .setOrigin(0.5).setDepth(10).setRotation(Math.PI / 2).setScale(1.1);
-    this.diver.play('fd-drift');
+
+    // Breathe-up: chilling at the surface until the first tap.
+    // Random idle pose — floating face-down with a snorkel, or bobbing upright.
+    const floating = Math.random() < 0.5;
+    this.diver = this.add.sprite(
+      180,
+      floating ? SURFACE_Y - 4 : SURFACE_Y + 16,
+      floating ? 'fd-float' : 'fd-straight',
+    ).setOrigin(0.5).setDepth(10).setScale(1.1);
+    if (!floating) this.diver.setRotation(-Math.PI / 2); // upright, head above water
+    this.bobTween = this.tweens.add({
+      targets: this.diver,
+      y: this.diver.y + 4,
+      duration: 1400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    // A kick waves the body once, then back to a still streamline
     this.diver.on(Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + 'fd-swim', () => {
-      if (this.diver.active) this.diver.play('fd-drift');
+      if (this.diver.active) { this.diver.stop(); this.diver.setTexture('fd-straight'); }
     });
 
     this.lighting = buildLighting(this);
@@ -114,9 +131,13 @@ export class FreediveScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (_p: Phaser.Input.Pointer, over: unknown[]) => {
       if (over.length > 0) return;
+      if (this.state === 'ready') return this.startDive();
       this.tryKick();
     });
-    this.input.keyboard?.on('keydown-SPACE', () => this.tryKick());
+    this.input.keyboard?.on('keydown-SPACE', () => {
+      if (this.state === 'ready') return this.startDive();
+      this.tryKick();
+    });
   }
 
   private buildLane(): void {
@@ -175,8 +196,27 @@ export class FreediveScene extends Phaser.Scene {
     circle.on('pointerdown', () => this.turnAround());
     this.input.keyboard?.on('keydown-T', () => this.turnAround());
     this.tweens.add({ targets: this.turnBtn, scale: 1.07, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.turnBtn.setVisible(false); // appears once the dive starts
 
-    this.flashBanner('Tap to the rhythm 🎵\nkick · kick · glide\n\nPast −32 m: freefall.\n⤴ TURN with O₂ to spare!', 3000);
+    this.banner.setText('breathe up...\n\nTAP when you are ready\nto take the one breath').setAlpha(1);
+  }
+
+  private startDive(): void {
+    this.state = 'diving';
+    this.bobTween?.remove();
+    this.turnBtn.setVisible(true);
+    this.tweens.add({ targets: this.banner, alpha: 0, duration: 300 });
+    // Duck dive: tip from the surface pose into a head-down streamline
+    this.tweens.add({
+      targets: this.diver,
+      rotation: Math.PI / 2,
+      y: SURFACE_Y + 20,
+      duration: 450,
+      ease: 'Sine.easeInOut',
+      onComplete: () => this.diver.setTexture('fd-straight'),
+    });
+    this.nextCueAt = this.time.now + 1000;
+    this.flashBanner('kick · kick · glide 🎵\nfreefall waits at −32 m', 1800);
   }
 
   private estimatedCost(): number {

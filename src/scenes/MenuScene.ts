@@ -44,26 +44,26 @@ export class MenuScene extends Phaser.Scene {
       });
     }
 
-    this.add.text(width / 2, 110, '🤿', { fontSize: '64px' }).setOrigin(0.5);
-    this.add.text(width / 2, 185, 'ONE BREATH', {
-      fontFamily: 'Georgia, serif', fontSize: '46px', color: '#e8f4ff', letterSpacing: 6,
+    this.add.text(width / 2, 84, '🤿', { fontSize: '54px' }).setOrigin(0.5);
+    this.add.text(width / 2, 148, 'ONE BREATH', {
+      fontFamily: 'Georgia, serif', fontSize: '44px', color: '#e8f4ff', letterSpacing: 6,
     }).setOrigin(0.5);
-    this.add.text(width / 2, 228, 'two ways down', {
+    this.add.text(width / 2, 188, 'two ways down', {
       fontFamily: 'Georgia, serif', fontSize: '18px', fontStyle: 'italic', color: '#8fc8e8',
     }).setOrigin(0.5);
 
     this.modeCard(
-      310,
-      '🌬 FREEDIVE',
-      'Pure technique. Kick in rhythm,\ntighter timing the deeper you go.\nTurn back before it is too late.',
+      312,
+      '🐬 FREEDIVE',
+      'Pure technique. Kick in rhythm,\nfreefall into the deep, and turn\nwith enough O₂ to swim home.',
       'freedive',
       '#4be3a0',
     );
 
     this.modeCard(
-      520,
-      '🪨 CAVE DIVE',
-      'Navigate the winding caves.\nGrab O₂ bubbles, dodge jellyfish,\nfind your way back home.',
+      516,
+      '🦈 CAVE DIVE',
+      'Navigate the winding caves.\nGrab O₂ bubbles, dodge what\nlives down there, swim home.',
       'cave',
       '#ffd166',
     );
