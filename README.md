@@ -11,10 +11,11 @@ exact moment for a PERFECT kick. The deeper you go, the faster and more irregula
 the rhythm gets. Freefall takes over past 20 m. Tap TURN with enough O₂ left to
 make it home, or the ocean keeps your depth.
 
-## 🛢 Cave dive mode
+## 🪨 Cave dive mode
 
-Free exploration on scuba. Swim with your finger (or arrows), find gas tanks to
-refill your air, dodge jellyfish, and get back to the surface.
+Navigate a winding cave system that narrows as you descend. Swim with your finger
+(or arrows), grab O₂ bubbles, dodge jellyfish, and find your way back to the surface.
+The cave layout is procedurally generated — every dive is a different cave.
 
 Beat a record in either mode and enter your name, arcade style.
 

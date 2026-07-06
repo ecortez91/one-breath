@@ -37,20 +37,21 @@ export function makeTextures(scene: Phaser.Scene): void {
     g.generateTexture('jelly', 48, 52);
   }
 
-  // Scuba tank pickup (cave mode)
-  if (!scene.textures.exists('tank')) {
+  // Cave rock: jagged blob, gets tiled/scaled to build walls
+  if (!scene.textures.exists('rock')) {
+    const pts = [
+      [4, 30], [16, 8], [42, 2], [72, 10], [92, 26],
+      [88, 48], [64, 60], [28, 58], [6, 46],
+    ].map(([x, y]) => new Phaser.Math.Vector2(x, y));
     g.clear();
-    g.fillStyle(0xffd23e, 1);
-    g.fillRoundedRect(8, 10, 20, 34, 8);
-    g.fillStyle(0x9aa7b0, 1);
-    g.fillRect(14, 4, 8, 8);
-    g.fillStyle(0x333d44, 1);
-    g.fillRect(12, 2, 12, 4);
-    g.lineStyle(2, 0xb8901c, 0.8);
-    g.strokeRoundedRect(8, 10, 20, 34, 8);
-    g.fillStyle(0xffffff, 0.35);
-    g.fillRoundedRect(11, 13, 5, 26, 3);
-    g.generateTexture('tank', 36, 48);
+    g.fillStyle(0x1c2a35, 1);
+    g.fillPoints(pts, true);
+    g.fillStyle(0x2b3f4e, 0.7);
+    g.fillCircle(30, 22, 10);
+    g.fillCircle(62, 34, 13);
+    g.lineStyle(3, 0x0d161d, 0.9);
+    g.strokePoints(pts, true, true);
+    g.generateTexture('rock', 96, 62);
   }
 
   // Rhythm cue ring (freedive mode)

@@ -9,10 +9,12 @@ import {
 const O2_MAX = 100;
 const O2_BASE_DRAIN = 2.2;
 const O2_SWIM_DRAIN = 1.6;
-const O2_TANK = 30; // a real tank is worth a lot more than a bubble
+const O2_BUBBLE = 14;
 const O2_JELLY_HIT = 18;
 
+const CAVE_START_M = 24; // open water above, cave walls below
 type Pickup = { obj: Phaser.GameObjects.Image; alive: boolean };
+type CaveBand = { m: number; gapX: number; gapW: number };
 
 export class CaveScene extends Phaser.Scene {
   private diver!: Phaser.GameObjects.Text;
@@ -26,8 +28,10 @@ export class CaveScene extends Phaser.Scene {
   private stunUntil = 0;
   private invulnUntil = 0;
 
-  private tanks: Pickup[] = [];
+  private bubbles: Pickup[] = [];
   private jellies: Pickup[] = [];
+  private caveBands: CaveBand[] = [];
+  private walls!: Phaser.Physics.Arcade.StaticGroup;
   private lighting!: Lighting;
 
   private o2Fill!: Phaser.GameObjects.Rectangle;
@@ -44,14 +48,17 @@ export class CaveScene extends Phaser.Scene {
     this.o2 = O2_MAX;
     this.maxDepth = 0;
     this.state = 'diving';
-    this.tanks = [];
+    this.bubbles = [];
     this.jellies = [];
+    this.caveBands = [];
 
     buildOcean(this);
     this.buildDiver();
+    this.buildCave();
     this.buildPickups();
     this.lighting = buildLighting(this);
     this.buildHud();
+    this.physics.add.collider(this.diver, this.walls);
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.keys = this.input.keyboard!.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key>;
@@ -91,35 +98,85 @@ export class CaveScene extends Phaser.Scene {
     });
   }
 
+  private buildCave(): void {
+    // A winding corridor: every band places rock walls on both sides of a gap.
+    // The gap wanders and narrows with depth.
+    this.walls = this.physics.add.staticGroup();
+    let gapX = W / 2;
+    for (let m = CAVE_START_M; m < MAX_DEPTH_M - 4; m += Phaser.Math.FloatBetween(7, 10)) {
+      const prog = m / MAX_DEPTH_M;
+      const gapW = Phaser.Math.Linear(300, 150, prog);
+      gapX = Phaser.Math.Clamp(
+        gapX + Phaser.Math.Between(-80, 80),
+        gapW / 2 + 34,
+        W - gapW / 2 - 34,
+      );
+      this.caveBands.push({ m, gapX, gapW });
+
+      const y = SURFACE_Y + m * PX_PER_M;
+      const wallH = 84;
+      const leftW = gapX - gapW / 2;
+      const rightW = W - (gapX + gapW / 2);
+      if (leftW > 8) this.wallSegment(leftW / 2, y, leftW, wallH);
+      if (rightW > 8) this.wallSegment(W - rightW / 2, y, rightW, wallH);
+    }
+  }
+
+  private wallSegment(cx: number, cy: number, w: number, h: number): void {
+    // Physics body (invisible) + rock blobs on top for the visuals
+    const zone = this.add.rectangle(cx, cy, w, h, 0x000000, 0);
+    this.walls.add(zone);
+    const blobs = Math.max(1, Math.round(w / 80));
+    for (let i = 0; i < blobs; i++) {
+      const bx = cx - w / 2 + (i + 0.5) * (w / blobs);
+      this.add.image(bx, cy + Phaser.Math.Between(-6, 6), 'rock')
+        .setDisplaySize(w / blobs + 26, h + 18)
+        .setFlipX(i % 2 === 1)
+        .setDepth(4)
+        .setAlpha(0.97);
+    }
+  }
+
+  /** X range that is guaranteed open water at a given depth. */
+  private corridorAt(m: number): { min: number; max: number } {
+    if (m < CAVE_START_M) return { min: 50, max: W - 50 };
+    let nearest: CaveBand = this.caveBands[0];
+    for (const b of this.caveBands) {
+      if (Math.abs(b.m - m) < Math.abs(nearest.m - m)) nearest = b;
+    }
+    return { min: nearest.gapX - nearest.gapW / 2 + 26, max: nearest.gapX + nearest.gapW / 2 - 26 };
+  }
+
   private buildPickups(): void {
-    // Gas tanks stashed down the water column — rarer than the old bubbles,
-    // worth much more, and increasingly precious with depth
-    let m = 8;
+    // Air bubbles along the corridor: denser near the surface, sparse deep down
+    let m = 4;
     while (m < MAX_DEPTH_M - 4) {
-      const x = Phaser.Math.Between(50, W - 50);
-      const y = SURFACE_Y + m * PX_PER_M + Phaser.Math.Between(-30, 30);
-      const img = this.add.image(x, y, 'tank').setDepth(5);
+      const c = this.corridorAt(m);
+      const x = Phaser.Math.Between(c.min, c.max);
+      const y = SURFACE_Y + m * PX_PER_M + Phaser.Math.Between(-20, 20);
+      const img = this.add.image(x, y, 'bubble').setScale(1.15).setDepth(5);
       this.tweens.add({
         targets: img,
-        y: y - 10,
-        angle: Phaser.Math.Between(-8, 8),
-        duration: Phaser.Math.Between(1600, 2400),
+        y: y - 14,
+        duration: Phaser.Math.Between(1400, 2200),
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
-      this.tanks.push({ obj: img, alive: true });
-      m += Phaser.Math.FloatBetween(6, 9) + m / 25;
+      this.bubbles.push({ obj: img, alive: true });
+      m += Phaser.Math.FloatBetween(2, 2.5) + (m / 30);
     }
 
     let jm = 12;
     while (jm < MAX_DEPTH_M - 2) {
-      const x = Phaser.Math.Between(50, W - 50);
+      const c = this.corridorAt(jm);
+      const x = Phaser.Math.Between(c.min, c.max);
       const y = SURFACE_Y + jm * PX_PER_M;
       const img = this.add.image(x, y, 'jelly').setDepth(6);
+      const driftMax = Math.min(90, (c.max - c.min) / 2);
       this.tweens.add({
         targets: img,
-        x: Phaser.Math.Clamp(x + Phaser.Math.Between(-90, 90), 40, W - 40),
+        x: Phaser.Math.Clamp(x + Phaser.Math.Between(-driftMax, driftMax), c.min, c.max),
         y: y - Phaser.Math.Between(20, 50),
         duration: Phaser.Math.Between(2200, 3600),
         yoyo: true,
@@ -207,18 +264,14 @@ export class CaveScene extends Phaser.Scene {
       return;
     }
 
-    for (const t of this.tanks) {
-      if (!t.alive) continue;
-      if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, t.obj.x, t.obj.y) < 36) {
-        t.alive = false;
-        this.o2 = Math.min(O2_MAX, this.o2 + O2_TANK);
-        const label = this.add.text(t.obj.x, t.obj.y - 20, '+O₂', {
-          fontFamily: 'monospace', fontSize: '20px', color: '#4be3a0', stroke: '#02121f', strokeThickness: 4,
-        }).setOrigin(0.5).setDepth(50);
-        this.tweens.add({ targets: label, y: label.y - 40, alpha: 0, duration: 700, onComplete: () => label.destroy() });
+    for (const b of this.bubbles) {
+      if (!b.alive) continue;
+      if (Phaser.Math.Distance.Between(this.diver.x, this.diver.y, b.obj.x, b.obj.y) < 34) {
+        b.alive = false;
+        this.o2 = Math.min(O2_MAX, this.o2 + O2_BUBBLE);
         this.tweens.add({
-          targets: t.obj, scale: 1.6, alpha: 0, duration: 220,
-          onComplete: () => t.obj.destroy(),
+          targets: b.obj, scale: 2, alpha: 0, duration: 220,
+          onComplete: () => b.obj.destroy(),
         });
       }
     }

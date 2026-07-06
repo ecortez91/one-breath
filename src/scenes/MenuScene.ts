@@ -61,8 +61,8 @@ export class MenuScene extends Phaser.Scene {
 
     this.modeCard(
       520,
-      '🛢 CAVE DIVE',
-      'Explore the deep. Find gas tanks,\ndodge jellyfish, swim home.',
+      '🪨 CAVE DIVE',
+      'Navigate the winding caves.\nGrab O₂ bubbles, dodge jellyfish,\nfind your way back home.',
       'cave',
       '#ffd166',
     );
