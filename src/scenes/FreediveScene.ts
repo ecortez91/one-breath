@@ -3,11 +3,13 @@ import { makeTextures } from './textures';
 import { getRecord, submitRecord } from './records';
 import { diveAudio } from './audio';
 import {
-  W, PX_PER_M, SURFACE_Y, ZONES, MILESTONES, titleFor,
+  W, PX_PER_M, SURFACE_Y, ZONES, MILESTONES, titleFor, lungCapacity,
   buildOcean, buildLighting, updateLighting, type Lighting,
 } from './world';
 
-const MAX_M = 1000; // to the midnight zone — nobody has survived it yet
+// Honest ceiling: the real CWT world record is ~136 m. 150 is the grail.
+const MAX_M = 150;
+const LINE_X = 200; // the competition line the diver follows
 const FREEFALL_AT = 32; // past neutral buoyancy you stop kicking and sink
 
 const O2_MAX = 100;
@@ -44,6 +46,9 @@ export class FreediveScene extends Phaser.Scene {
   private bobTween?: Phaser.Tweens.Tween;
   private fins: 'mono' | 'bi' = (localStorage.getItem('onebreath_fins') as 'mono' | 'bi') || 'mono';
   private finButtons: Phaser.GameObjects.Text[] = [];
+  private maxO2 = 100;
+  private breathPhase: 'idle' | 'inhale' = 'idle';
+  private breathStart = 0;
   private stillRing?: Phaser.GameObjects.Arc;
   private protocolTaps = 0;
   private protocolDeadline = 0;
@@ -99,8 +104,21 @@ export class FreediveScene extends Phaser.Scene {
     this.stillRing = undefined;
     this.protocolText = undefined;
     this.protocolTaps = 0;
+    this.breathPhase = 'idle';
+    this.maxO2 = lungCapacity(getRecord('freedive').depth);
+    this.o2 = this.maxO2;
 
     buildOcean(this, MAX_M);
+
+    // The competition setup: boat at the surface, the line, the plate at 150 m
+    this.add.text(LINE_X + 16, SURFACE_Y - 24, '⛵', { fontSize: '46px', padding: { y: 12 } })
+      .setOrigin(0.5, 1).setDepth(3);
+    this.add.rectangle(LINE_X, SURFACE_Y + (MAX_M * PX_PER_M) / 2, 3, MAX_M * PX_PER_M, 0xd8e8f0, 0.22).setDepth(2);
+    const plateY = SURFACE_Y + MAX_M * PX_PER_M;
+    this.add.rectangle(LINE_X, plateY, 74, 12, 0xe8f4ff, 0.9).setDepth(3);
+    this.add.text(LINE_X, plateY + 24, '— 150 m · THE PLATE —', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#ffd166',
+    }).setOrigin(0.5).setDepth(3);
 
     for (const pre of ['fd', 'bf']) {
       if (!this.anims.exists(pre + '-drift')) {
@@ -144,19 +162,17 @@ export class FreediveScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.diver, false, 0.15, 0.15);
     this.cameras.main.fadeIn(400);
 
+    const onTap = () => {
+      diveAudio.init();
+      if (this.state === 'ready') return this.breathTap();
+      if (this.state === 'protocol') return this.protocolTap();
+      this.tryKick();
+    };
     this.input.on('pointerdown', (_p: Phaser.Input.Pointer, over: unknown[]) => {
-      diveAudio.init();
-      if (over.length > 0) return;
-      if (this.state === 'ready') return this.startDive();
-      if (this.state === 'protocol') return this.protocolTap();
-      this.tryKick();
+      if (over.length > 0) { diveAudio.init(); return; }
+      onTap();
     });
-    this.input.keyboard?.on('keydown-SPACE', () => {
-      diveAudio.init();
-      if (this.state === 'ready') return this.startDive();
-      if (this.state === 'protocol') return this.protocolTap();
-      this.tryKick();
-    });
+    this.input.keyboard?.on('keydown-SPACE', onTap);
   }
 
   private buildLane(): void {
@@ -218,7 +234,10 @@ export class FreediveScene extends Phaser.Scene {
     this.tweens.add({ targets: this.turnBtn, scale: 1.07, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     this.turnBtn.setVisible(false); // appears once the dive starts
 
-    this.banner.setText('breathe up...\n\nTAP when you are ready\nto take the one breath').setAlpha(1);
+    this.banner.setText('breathe up...\n\nTAP to begin\nyour final breath').setAlpha(1);
+    this.add.text(W / 2, 745, `lung capacity: ${this.maxO2}`, {
+      fontFamily: 'monospace', fontSize: '14px', color: '#8fc8e8',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(96).setName('capacityLabel');
 
     // Equipment choice while breathing up
     const mkFinBtn = (x: number, kind: 'mono' | 'bi', label: string) => {
@@ -262,6 +281,34 @@ export class FreediveScene extends Phaser.Scene {
       const active = (b.text === 'MONOFIN') === (this.fins === 'mono');
       b.setBackgroundColor(active ? '#d97706' : '#0d5c8c').setColor(active ? '#ffffff' : '#9fc4dc');
     });
+  }
+
+  /**
+   * The final breath is a skill: first tap starts the inhale, the fill
+   * bounces at the top of your lungs, second tap holds it — whatever you
+   * locked is the O₂ you dive with.
+   */
+  private breathTap(): void {
+    if (this.breathPhase === 'idle') {
+      this.breathPhase = 'inhale';
+      this.breathStart = this.time.now;
+      this.banner.setText('inhale…\n\nTAP at the very top\nof your lungs').setAlpha(1);
+      this.finButtons.forEach(b => b.setVisible(false));
+      return;
+    }
+    const locked = this.breathFill(this.time.now);
+    this.o2 = Math.max(65, locked);
+    if (locked >= this.maxO2 - 1.5) this.popup('full lungs ✓', '#4be3a0');
+    else if (locked < this.maxO2 - 10) this.popup('short breath…', '#ffd166');
+    this.startDive();
+  }
+
+  private breathFill(now: number): number {
+    const t = (now - this.breathStart) / 1000;
+    const riseTime = this.maxO2 / 46; // ~2.2s to the top
+    if (t < riseTime) return t * 46;
+    // bouncing at the top of the lungs
+    return this.maxO2 - Math.abs(Math.sin((t - riseTime) * 3.2)) * 14;
   }
 
   private startDive(): void {
@@ -456,6 +503,13 @@ export class FreediveScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
+    // Breath minigame: the O₂ bar IS the lungs while inhaling
+    if (this.state === 'ready' && this.breathPhase === 'inhale') {
+      const fill = this.breathFill(time);
+      this.o2Fill.width = 196 * (fill / this.maxO2);
+      this.o2Fill.fillColor = fill >= this.maxO2 - 2 ? 0x4be3a0 : 0x8fd8ff;
+      return;
+    }
     if (this.state !== 'diving') return;
     const dt = Math.min(deltaMs, 50) / 1000;
 
@@ -522,7 +576,13 @@ export class FreediveScene extends Phaser.Scene {
     if (this.phase === 'kick' && this.depth >= FREEFALL_AT) {
       this.phase = 'freefall';
       this.vel = 0;
-      this.flashBanner('FREEFALL 🪶\nstop kicking — the ocean\ntakes you down for free', 1800);
+      // The most peaceful moment of the dive — whisper it, don't shout it
+      const whisper = this.add.text(W / 2 - 40, 300, 'freefall\n\nstop kicking. let go.', {
+        fontFamily: 'Georgia, serif', fontSize: '21px', fontStyle: 'italic',
+        color: '#b8d4e2', align: 'center', lineSpacing: 6,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(101).setAlpha(0);
+      this.tweens.add({ targets: whisper, alpha: 0.85, duration: 1600, ease: 'Sine.easeIn' });
+      this.tweens.add({ targets: whisper, alpha: 0, duration: 1800, delay: 3800, onComplete: () => whisper.destroy() });
       this.phaseText.setText('▼ freefall').setColor('#9fd0e8');
       this.cues.forEach(c => { if (!c.judged && c.type === 'kick') { c.judged = true; this.killCue(c, 0x557388); } });
     }
@@ -602,10 +662,10 @@ export class FreediveScene extends Phaser.Scene {
     // ── HUD / lighting ──
     if (this.stillRing) this.stillRing.setPosition(this.diver.x, this.diver.y);
     updateLighting(this.lighting, this.depth, this.diver.x, this.diver.y);
-    const frac = this.o2 / O2_MAX;
+    const frac = this.o2 / this.maxO2;
     this.o2Fill.width = 196 * frac;
     this.o2Fill.fillColor = frac > 0.5 ? 0x4be3a0 : frac > 0.25 ? 0xffd166 : 0xff5d5d;
-    this.costMarker.setX(26 + 196 * (cost / 100));
+    this.costMarker.setX(26 + 196 * Math.min(1, cost / this.maxO2));
     this.costMarker.setFillStyle(this.o2 < cost ? 0xff5d5d : 0xffffff, 0.95);
     this.dangerV.setAlpha(frac < 0.22 ? (0.22 - frac) * 1.6 + Math.sin(time / 150) * 0.05 : 0);
     this.depthText.setText(`${this.depth.toFixed(0)} m`);

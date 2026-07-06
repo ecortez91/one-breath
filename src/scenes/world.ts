@@ -10,7 +10,11 @@ export const ZONES = [
   { m: 500, label: 'THE MIDNIGHT ZONE' },
 ];
 
-/** Depth milestones — the progression ladder that keeps divers coming back. */
+/**
+ * Depth milestones — the progression ladder. Each one your record has touched
+ * also grows your lung capacity (+2 starting O₂). The real CWT world record
+ * (monofin) sits around 136 m, so that is where "The World Record" lives.
+ */
 export const MILESTONES = [
   { m: 20, title: 'First Dip' },
   { m: 30, title: 'Blue Believer' },
@@ -18,13 +22,14 @@ export const MILESTONES = [
   { m: 60, title: 'The Door to the Deep' },
   { m: 80, title: 'Deep Runner' },
   { m: 100, title: 'HECTOMETER' },
-  { m: 130, title: 'Past the Record Books' },
-  { m: 160, title: 'Superhuman' },
-  { m: 200, title: 'Twilight Knocker' },
-  { m: 300, title: 'The Abyss Calls' },
-  { m: 500, title: 'Midnight Diver' },
-  { m: 1000, title: 'One With the Ocean' },
+  { m: 120, title: 'Rarefied Water' },
+  { m: 136, title: 'THE WORLD RECORD' },
+  { m: 150, title: 'Beyond Human' },
 ];
+
+export function lungCapacity(recordDepth: number): number {
+  return 100 + MILESTONES.filter(ms => recordDepth >= ms.m).length * 2;
+}
 
 export function titleFor(depth: number): string {
   let t = 'Surface Dweller';
