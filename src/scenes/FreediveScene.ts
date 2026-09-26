@@ -228,6 +228,11 @@ export class FreediveScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '19px', color: '#ffffff', align: 'center', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.turnBtn = this.add.container(72, HIT_Y - 6, [circle, label]).setScrollFactor(0).setDepth(95);
+    // The container's scrollFactor only pins how the children are DRAWN; Phaser hit-tests
+    // each child with its OWN scrollFactor. Pin them explicitly or the tap target scrolls
+    // away with the camera and the TURN button stops working at depth.
+    circle.setScrollFactor(0);
+    label.setScrollFactor(0);
     circle.setInteractive({ useHandCursor: true });
     circle.on('pointerdown', () => this.turnAround());
     this.input.keyboard?.on('keydown-T', () => this.turnAround());
